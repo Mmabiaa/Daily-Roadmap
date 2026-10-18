@@ -35,32 +35,34 @@ export function TodayView({
 
     return (
         <main className="content">
-            <section className="today-intro">
-                <div>
-                    <p className="section-kicker">Your plan for today</p>
-                    <h2>One block at a time.</h2>
-                    <p>
-                        {doneCount} of {blocks.length} complete · {streak} day minimum streak
-                    </p>
-                </div>
-                <Ring value={completion} />
-            </section>
-
-            {/* Only render the time-sensitive banner after hydration to avoid mismatch */}
-            {mounted && currentIndex >= 0 && (
-                <div className="next-banner" suppressHydrationWarning>
-                    <div className="live-dot" />
+            <div className="today-hero-section">
+                <section className="today-intro">
                     <div>
-                        <strong>Now · {blocks[currentIndex].title}</strong>
-                        <span>
-                            {nextBlock
-                                ? `${minsToNext} min until ${nextBlock.title}`
-                                : 'You are at the end of today'}
-                        </span>
+                        <p className="section-kicker">Your plan for today</p>
+                        <h2>One block at a time.</h2>
+                        <p>
+                            {doneCount} of {blocks.length} complete · {streak} day minimum streak
+                        </p>
                     </div>
-                    <Clock3 />
-                </div>
-            )}
+                    <Ring value={completion} />
+                </section>
+
+                {/* Only render the time-sensitive banner after hydration to avoid mismatch */}
+                {mounted && currentIndex >= 0 && (
+                    <div className="next-banner" suppressHydrationWarning>
+                        <div className="live-dot" />
+                        <div>
+                            <strong>Now · {blocks[currentIndex].title}</strong>
+                            <span>
+                                {nextBlock
+                                    ? `${minsToNext} min until ${nextBlock.title}`
+                                    : 'You are at the end of today'}
+                            </span>
+                        </div>
+                        <Clock3 />
+                    </div>
+                )}
+            </div>
 
             {streak >= 3 && (
                 <div className="streak-banner" aria-label="Streak">

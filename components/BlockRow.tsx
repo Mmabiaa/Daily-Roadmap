@@ -41,7 +41,7 @@ export function BlockRow({ block, index, next, done, onToggle, isNow, dim }: Pro
             <div className={`block-card category-${block.category} ${done ? 'is-done' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                        <p className={`block-title ${done ? 'line-through opacity-55' : ''}`}>
+                        <p className="block-title">
                             {block.title}
                         </p>
                         {block.note && <p className="block-note">{block.note}</p>}
