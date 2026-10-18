@@ -99,19 +99,28 @@
     margin: auto;
     padding: 9px 12px max(9px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--line);
-    background: color-mix(in srgb, var(--background) 94%, transparent);
-    backdrop-filter: blur(12px);
+    background: var(--background);
+    /* avoid backdrop-filter stacking-context bug that swallows touch events on mobile */
+    pointer-events: auto;
 }
 
 .bottom-nav button {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     gap: 4px;
+    min-height: 48px;
+    /* minimum touch target */
+    padding: 6px 0;
     border: 0;
     background: transparent;
     color: var(--muted);
     font-size: 10px;
+    pointer-events: auto;
+    /* ensure tap events are received on mobile */
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
 }
 
 .bottom-nav button.active {

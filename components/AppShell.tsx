@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Block, Day, days, schedule } from '@/lib/schedule'
-import { dateForDay, keyFor, minutes, todayInfo, duration } from '@/lib/utils'
+import { dateForDay, keyFor, minutes, todayInfo, duration, haptic } from '@/lib/utils'
 
 import { BottomNav } from './BottomNav'
 import { FocusMode } from './FocusMode'
@@ -11,6 +11,8 @@ import { Review } from './Review'
 import { TodayView } from './TodayView'
 import { Topbar } from './Topbar'
 import { WeekView } from './WeekView'
+import { Toast } from './Toast'
+import { Confetti } from './Confetti'
 
 type View = 'today' | 'week' | 'review' | 'guide'
 
@@ -21,16 +23,19 @@ export function AppShell() {
     const [checks, setChecks] = useState<Record<string, boolean>>({})
     const [reviews, setReviews] = useState<Record<string, string[]>>({})
     const [energy, setEnergy] = useState<Record<string, 'low' | 'okay' | 'high'>>({})
-    const [now, setNow] = useState(new Date())
+    const [now, setNow] = useState<Date | null>(null)
     const [mounted, setMounted] = useState(false)
     const [theme, setTheme] = useState<'light' | 'dark'>('light')
     const [lockIn, setLockIn] = useState(false)
     const [timer, setTimer] = useState(50 * 60)
     const [timerRunning, setTimerRunning] = useState(false)
+    const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'info' } | null>(null)
+    const [celebrate, setCelebrate] = useState(false)
 
-    // Hydrate from localStorage + tick `now` every 30s
+    // Hydrate from localStorage + start clock AFTER mount (avoids SSR mismatch)
     useEffect(() => {
         setMounted(true)
+        setNow(new Date())
         try {
             setChecks(JSON.parse(localStorage.getItem('fyr-checks') || '{}'))
             setReviews(JSON.parse(localStorage.getItem('fyr-reviews') || '{}'))
@@ -73,14 +78,24 @@ export function AppShell() {
         return () => clearInterval(id)
     }, [timerRunning])
 
-    // Register service worker
+    // Toast auto-dismiss
     useEffect(() => {
-        if (mounted) {
+        if (!toast) return
+        const id = setTimeout(() => setToast(null), 2200)
+        return () => clearTimeout(id)
+    }, [toast])
+
+    // Register service worker (production only)
+    useEffect(() => {
+        if (mounted && process.env.NODE_ENV === 'production') {
             navigator.serviceWorker?.register('/sw.js').catch(() => { })
         }
     }, [mounted])
 
     // ─── Derived values ───
+    // Use a "safe now" that's only the real clock once mounted.
+    // Before mount: use midnight so server + first client render agree.
+    const safeNow = now ?? new Date(2000, 0, 1, 0, 0, 0)
     const today = todayInfo()
     const activeDay = view === 'today' ? today.day : selectedDay
     const date = dateForDay(activeDay)
@@ -88,8 +103,8 @@ export function AppShell() {
     const shown = minimum ? blocks.filter((b) => b.essential) : blocks
 
     const isToday = activeDay === today.day
-    const currentMinutes = now.getHours() * 60 + now.getMinutes()
-    const currentIndex = isToday
+    const currentMinutes = safeNow.getHours() * 60 + safeNow.getMinutes()
+    const currentIndex = mounted && isToday
         ? blocks.findIndex((b, i) => {
             const end = i < blocks.length - 1 ? minutes(blocks[i + 1].time) : minutes('05:30')
             let e = end
@@ -130,11 +145,18 @@ export function AppShell() {
         return count
     }, [checks])
 
-    const toggle = (i: number) =>
-        setChecks((v) => ({
-            ...v,
-            [keyFor(date, activeDay, i)]: !v[keyFor(date, activeDay, i)],
-        }))
+    const toggle = (i: number) => {
+        haptic(6)
+        const key = keyFor(date, activeDay, i)
+        const willBeDone = !checks[key]
+        setChecks((v) => ({ ...v, [key]: willBeDone }))
+        if (willBeDone) {
+            const block = blocks[i]
+            if (block?.essential) {
+                setToast({ message: 'Essential done · nice', tone: 'success' })
+            }
+        }
+    }
 
     const classHours = Math.round(
         blocks.reduce(
@@ -152,25 +174,38 @@ export function AppShell() {
 
     const focusBlock = blocks[currentIndex >= 0 ? currentIndex : 0]
 
-    const handleLockIn = () =>
-        setLockIn((value) => {
-            const next = !value
-            setTimerRunning(next)
-            return next
-        })
+    const handleLockIn = () => {
+        const next = !lockIn
+        haptic(10)
+        setLockIn(next)
+        setTimerRunning(next)
+    }
 
+    // Celebrate when essential day complete
+    useEffect(() => {
+        if (!mounted) return
+        if (essentialDone && view === 'today' && completion > 0) {
+            setCelebrate(true)
+            const id = setTimeout(() => setCelebrate(false), 1600)
+            return () => clearTimeout(id)
+        }
+    }, [essentialDone, completion, mounted, view])
+
+    // Only compute the formatted subtitle AFTER mount to avoid locale/time mismatch
     const subtitle =
-        view === 'today'
-            ? new Intl.DateTimeFormat('en', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-            }).format(now)
-            : view === 'week'
-                ? 'A gentle view of the week ahead'
-                : view === 'review'
-                    ? 'A quiet Sunday check-in'
-                    : 'Small rules, made easier to keep'
+        !mounted
+            ? ' '
+            : view === 'today'
+                ? new Intl.DateTimeFormat('en', {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                }).format(safeNow)
+                : view === 'week'
+                    ? 'A gentle view of the week ahead'
+                    : view === 'review'
+                        ? 'A quiet Sunday check-in'
+                        : 'Small rules, made easier to keep'
 
     return (
         <div className="app-shell">
@@ -180,7 +215,10 @@ export function AppShell() {
                 theme={theme}
                 lockIn={lockIn}
                 onToggleLockIn={handleLockIn}
-                onToggleTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                onToggleTheme={() => {
+                    haptic(5)
+                    setTheme(theme === 'light' ? 'dark' : 'light')
+                }}
             />
 
             {lockIn && (
@@ -188,49 +226,71 @@ export function AppShell() {
                     block={focusBlock}
                     timer={timer}
                     running={timerRunning}
-                    onToggle={() => setTimerRunning((value) => !value)}
-                    onClose={handleLockIn}
+                    onToggle={() => {
+                        haptic(6)
+                        setTimerRunning((value) => !value)
+                    }}
+                    onClose={() => {
+                        haptic(8)
+                        handleLockIn()
+                    }}
+                    onReset={() => setTimer(50 * 60)}
                 />
             )}
 
-            {view === 'today' && (
-                <TodayView
-                    date={date}
-                    activeDay={activeDay}
-                    blocks={blocks}
-                    shown={shown}
-                    checks={checks}
-                    completion={completion}
-                    streak={streak}
-                    currentIndex={currentIndex}
-                    nextBlock={nextBlock}
-                    minsToNext={minsToNext}
-                    minimum={minimum}
-                    setMinimum={setMinimum}
-                    onToggle={toggle}
-                />
-            )}
+            <div className={`page-transition ${view}`}>
+                {view === 'today' && (
+                    <TodayView
+                        date={date}
+                        activeDay={activeDay}
+                        blocks={blocks}
+                        shown={shown}
+                        checks={checks}
+                        completion={completion}
+                        streak={streak}
+                        currentIndex={currentIndex}
+                        nextBlock={nextBlock}
+                        minsToNext={minsToNext}
+                        minimum={minimum}
+                        setMinimum={setMinimum}
+                        onToggle={toggle}
+                        mounted={mounted}
+                    />
+                )}
 
-            {view === 'week' && (
-                <WeekView
-                    date={date}
-                    activeDay={activeDay}
-                    blocks={blocks}
-                    shown={shown}
-                    checks={checks}
-                    selectedDay={selectedDay}
-                    setSelectedDay={setSelectedDay}
-                    classHours={classHours}
-                    studyHours={studyHours}
-                    essentialDone={essentialDone}
-                    minimum={minimum}
-                    setMinimum={setMinimum}
-                    onToggle={toggle}
-                />
-            )}
+                {view === 'week' && (
+                    <WeekView
+                        date={date}
+                        activeDay={activeDay}
+                        blocks={blocks}
+                        shown={shown}
+                        checks={checks}
+                        selectedDay={selectedDay}
+                        setSelectedDay={(d) => {
+                            haptic(5)
+                            setSelectedDay(d)
+                        }}
+                        classHours={classHours}
+                        studyHours={studyHours}
+                        essentialDone={essentialDone}
+                        minimum={minimum}
+                        setMinimum={setMinimum}
+                        onToggle={toggle}
+                    />
+                )}
 
-            {view === 'review' && <Review reviews={reviews} setReviews={setReviews} />}
-            {view === 'guide' && <Guide />}
+                {view === 'review' && (
+                    <Review
+                        reviews={reviews}
+                        setReviews={setReviews}
+                        onSaved={() => setToast({ message: 'Saved privately', tone: 'success' })}
+                    />
+                )}
+                {view === 'guide' && <Guide />}
+            </div>
+
+            {toast && <Toast message={toast.message} tone={toast.tone} />}
+            {celebrate && <Confetti />}
 
             <BottomNav view={view} setView={setView} />
         </div>

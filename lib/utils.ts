@@ -1,4 +1,11 @@
+import { clsx, type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
 import { Block, Day, days } from '@/lib/schedule'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
 
 export const keyFor = (date: string, day: Day, i: number) =>
   `fyr:${date}:${day}:${i}`
@@ -35,4 +42,15 @@ export const dateForDay = (day: Day, base = new Date()) => {
   const d = new Date(base)
   d.setDate(base.getDate() + i - current)
   return d.toISOString().slice(0, 10)
+}
+
+/** Vibrate on supporting devices. Safe to call on server / unsupported browsers. */
+export const haptic = (ms = 8) => {
+  if (typeof navigator === 'undefined') return
+  if (typeof navigator.vibrate !== 'function') return
+  try {
+    navigator.vibrate(ms)
+  } catch {
+    /* ignore */
+  }
 }

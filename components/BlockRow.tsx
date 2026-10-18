@@ -31,13 +31,14 @@ export function BlockRow({ block, index, next, done, onToggle, isNow, dim }: Pro
             <div className="timeline-line">
                 <button
                     aria-label={`${done ? 'Uncomplete' : 'Complete'} ${block.title}`}
+                    aria-pressed={done}
                     onClick={onToggle}
                     className={`check-button ${done ? 'checked' : ''}`}
                 >
                     {done && <Check aria-hidden="true" />}
                 </button>
             </div>
-            <div className={`block-card category-${block.category}`}>
+            <div className={`block-card category-${block.category} ${done ? 'is-done' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                         <p className={`block-title ${done ? 'line-through opacity-55' : ''}`}>

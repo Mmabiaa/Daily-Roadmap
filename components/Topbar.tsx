@@ -1,6 +1,7 @@
 'use client'
 
 import { Lock, Moon, Sun, Unlock } from 'lucide-react'
+import { haptic } from '@/lib/utils'
 
 type View = 'today' | 'week' | 'review' | 'guide'
 
@@ -23,9 +24,9 @@ type Props = {
 export function Topbar({ view, subtitle, theme, lockIn, onToggleLockIn, onToggleTheme }: Props) {
     return (
         <header className="topbar">
-            <div>
+            <div className="topbar-text">
                 <p className="eyebrow">CE 400 · Group A</p>
-                <h1>{titles[view]}</h1>
+                <h1 key={view} className="title-anim">{titles[view]}</h1>
                 <p className="subtitle">{subtitle}</p>
             </div>
             <div className="header-actions">
@@ -33,7 +34,7 @@ export function Topbar({ view, subtitle, theme, lockIn, onToggleLockIn, onToggle
                     className={`icon-button lock-in-button ${lockIn ? 'is-active' : ''}`}
                     aria-pressed={lockIn}
                     aria-label={lockIn ? 'Unlock focus mode' : 'Lock in to this plan'}
-                    onClick={onToggleLockIn}
+                    onClick={() => { haptic(6); onToggleLockIn() }}
                 >
                     {lockIn ? <Lock aria-hidden="true" /> : <Unlock aria-hidden="true" />}
                 </button>

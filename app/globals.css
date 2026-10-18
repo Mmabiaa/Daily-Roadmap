@@ -1,8 +1,14 @@
-/* Entry point — import order matters */
-@import "./styles/01-tailwind.css";
-@import "./styles/02-tokens.css";
-@import "./styles/03-base.css";
-@import "./styles/04-layout.css";
-@import "./styles/05-components.css";
-@import "./styles/06-pages.css";
-@import "./styles/07-utilities.css";
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@import './styles/01-tailwind.css';
+@import './styles/02-tokens.css';
+@import './styles/03-base.css';
+@import './styles/04-layout.css';
+@import './styles/05-components.css';
+@import './styles/06-pages.css';
+@import './styles/07-utilities.css';
+@import './styles/08-app-feel.css';

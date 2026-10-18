@@ -29,10 +29,12 @@ export function WeekView({
 }: Props) {
     return (
         <main className="content">
-            <div className="day-tabs">
+            <div className="day-tabs" role="tablist" aria-label="Days of the week">
                 {days.map((d) => (
                     <button
                         key={d}
+                        role="tab"
+                        aria-selected={d === selectedDay}
                         onClick={() => setSelectedDay(d)}
                         className={d === selectedDay ? 'selected' : ''}
                     >
@@ -53,26 +55,29 @@ export function WeekView({
                 </div>
                 <div>
                     <span>Minimum day</span>
-                    <strong>{essentialDone ? 'Done' : 'Open'}</strong>
+                    <strong className={essentialDone ? 'is-done' : ''}>
+                        {essentialDone ? 'Done' : 'Open'}
+                    </strong>
                 </div>
             </div>
 
             <section className="week-heading">
                 <div>
                     <p className="section-kicker">{selectedDay}</p>
-                    <h2>{focus[selectedDay]}</h2>
+                    <h2 key={selectedDay} className="title-anim">{focus[selectedDay]}</h2>
                 </div>
                 <button
                     className={`switch ${minimum ? 'on' : ''}`}
                     role="switch"
                     aria-checked={minimum}
+                    aria-label="Show minimum day"
                     onClick={() => setMinimum(!minimum)}
                 >
                     <span />
                 </button>
             </section>
 
-            <div className="timeline">
+            <div className="timeline" key={selectedDay}>
                 {shown.map((block) => {
                     const i = blocks.indexOf(block)
                     return (

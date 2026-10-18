@@ -351,6 +351,7 @@
     bottom: 8px;
     width: 1px;
     background: var(--line);
+    pointer-events: none;
 }
 
 .timeline-row {

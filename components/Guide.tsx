@@ -1,4 +1,3 @@
-'use client'
 
 import { phoneRules, studyRules } from '@/lib/schedule'
 
@@ -19,7 +18,7 @@ export function Guide() {
                 {phoneRules.map((x, i) => (
                     <p key={x}>
                         <b>{String(i + 1).padStart(2, '0')}</b>
-                        {x}
+                        <span>{x}</span>
                     </p>
                 ))}
             </section>
@@ -29,7 +28,7 @@ export function Guide() {
                 {studyRules.map((x, i) => (
                     <p key={x}>
                         <b>{String(i + 1).padStart(2, '0')}</b>
-                        {x}
+                        <span>{x}</span>
                     </p>
                 ))}
             </section>
@@ -37,8 +36,10 @@ export function Guide() {
             <section className="guide-card minimum-card">
                 <h3>Minimum day</h3>
                 <p>
-                    Wake at 5:30 · attend classes · one study block · one commit · one Duolingo
-                    lesson · lights out on time.
+                    <span>
+                        Wake at 5:30 · attend classes · one study block · one commit · one Duolingo
+                        lesson · lights out on time.
+                    </span>
                 </p>
                 <small>Everything else is a bonus. No catching up tomorrow.</small>
             </section>
