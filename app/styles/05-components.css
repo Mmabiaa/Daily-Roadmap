@@ -542,7 +542,8 @@
     padding: 11px 12px;
     border-left: 3px solid var(--category);
     border-radius: 8px;
-    background: var(--card);
+    background: var(--category);
+    color: white;
     box-shadow: 0 1px 2px #14233308;
     transition: box-shadow .2s ease, border-color .2s ease;
 }
@@ -566,7 +567,7 @@
 
 .block-note {
     margin: 4px 0 0;
-    color: var(--muted);
+    color: rgba(255, 255, 255, 0.8);
     font-size: 12px;
     line-height: 1.35;
 }
