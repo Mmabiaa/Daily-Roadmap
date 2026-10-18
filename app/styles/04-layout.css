@@ -7,43 +7,76 @@
     padding-bottom: 94px;
 }
 
-/* ───────────── Top bar ───────────── */
+/* ───────────── Top bar (modern floating pill) ───────────── */
 
 .topbar {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 18px;
-    padding: 27px 20px 20px;
-    border-bottom: 1px solid var(--line);
-    background: var(--background);
+    gap: 14px;
+    margin: 10px 12px 0;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--background) 82%, transparent);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    box-shadow:
+        0 1px 0 rgb(255 255 255 / .04) inset,
+        0 10px 30px -18px rgb(0 0 0 / .35);
     position: sticky;
-    top: 0;
+    top: 10px;
     z-index: 5;
+    pointer-events: auto;
+}
+
+.topbar-text {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.topbar-avatar {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow:
+        0 0 0 2px var(--background),
+        0 0 0 3px var(--primary-soft);
+}
+
+.topbar-meta {
+    min-width: 0;
 }
 
 .eyebrow,
 .section-kicker {
-    margin: 0;
+    margin: 0 0 2px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: .1em;
+    letter-spacing: .12em;
     text-transform: uppercase;
 }
 
 .topbar h1 {
-    margin: 7px 0 4px;
-    font-size: 28px;
-    line-height: 1.05;
-    letter-spacing: -.04em;
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.1;
+    letter-spacing: -.035em;
     font-weight: 700;
 }
 
 .subtitle {
     color: var(--muted);
-    font-size: 14px;
-    margin: 0;
+    font-size: 12px;
+    margin: 2px 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .header-actions {
@@ -57,26 +90,39 @@
     display: grid;
     place-items: center;
     flex: 0 0 auto;
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
     border: 1px solid var(--line-strong);
-    border-radius: 50%;
+    border-radius: 12px;
     background: var(--card);
     color: var(--foreground);
+    transition: transform .15s ease, background .15s ease, color .15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
 }
 
 .icon-button:hover {
     background: var(--surface);
 }
 
+.icon-button:active {
+    transform: scale(.94);
+}
+
 .icon-button svg {
     width: 17px;
 }
 
+.icon-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
 .lock-in-button.is-active {
     border-color: var(--primary);
-    background: var(--primary-soft);
-    color: var(--primary);
+    background: var(--primary);
+    color: var(--on-primary, #fff);
+    box-shadow: 0 6px 16px -8px var(--primary);
 }
 
 /* ───────────── Main content ───────────── */
@@ -100,7 +146,6 @@
     padding: 9px 12px max(9px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--line);
     background: var(--background);
-    /* avoid backdrop-filter stacking-context bug that swallows touch events on mobile */
     pointer-events: auto;
 }
 
@@ -111,16 +156,25 @@
     justify-content: center;
     gap: 4px;
     min-height: 48px;
-    /* minimum touch target */
     padding: 6px 0;
     border: 0;
     background: transparent;
     color: var(--muted);
     font-size: 10px;
     pointer-events: auto;
-    /* ensure tap events are received on mobile */
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+    transition: color .15s ease, transform .12s ease;
+}
+
+.bottom-nav button:active {
+    transform: scale(.94);
+}
+
+.bottom-nav button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: 10px;
 }
 
 .bottom-nav button.active {
@@ -131,4 +185,17 @@
 .bottom-nav svg {
     width: 19px;
     height: 19px;
+}
+
+/* ───────────── Reduced motion ───────────── */
+
+@media (prefers-reduced-motion: reduce) {
+    .icon-button,
+    .bottom-nav button {
+        transition: none;
+    }
+    .icon-button:active,
+    .bottom-nav button:active {
+        transform: none;
+    }
 }
