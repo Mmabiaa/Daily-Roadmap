@@ -35,9 +35,6 @@ export function Review({ reviews, setReviews, onSaved }: Props) {
     return (
         <main className="content review-page">
             <section className="review-intro">
-                <div className="review-mark">
-                    <Sun aria-hidden="true" />
-                </div>
                 <p className="section-kicker">
                     {new Intl.DateTimeFormat('en', {
                         weekday: 'long',
