@@ -3,26 +3,26 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Final Year Roadmap',
-  description: 'A calm daily schedule manager for your final year.',
+  title: 'Daily Roadmap',
+  description: 'A calm daily schedule manager.',
   manifest: '/manifest.webmanifest',
-  generator: 'v0.app',
+  generator: 'Mmabiaa',
   icons: {
     icon: [
       {
-        url: '/icon-light-32x32.png',
+        url: 'https://i.pinimg.com/1200x/f8/98/bf/f898bfb34a80f0784e1417c86a096e13.jpg',
         media: '(prefers-color-scheme: light)',
       },
       {
-        url: '/icon-dark-32x32.png',
+        url: 'https://i.pinimg.com/1200x/f8/98/bf/f898bfb34a80f0784e1417c86a096e13.jpg',
         media: '(prefers-color-scheme: dark)',
       },
       {
-        url: '/icon.svg',
+        url: 'https://i.pinimg.com/1200x/f8/98/bf/f898bfb34a80f0784e1417c86a096e13.jpg',
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    apple: 'https://i.pinimg.com/1200x/f8/98/bf/f898bfb34a80f0784e1417c86a096e13.jpg',
   },
 }
 

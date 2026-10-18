@@ -1,0 +1,125 @@
+/* ───────────── App shell ───────────── */
+
+.app-shell {
+    min-height: 100svh;
+    max-width: 720px;
+    margin: auto;
+    padding-bottom: 94px;
+}
+
+/* ───────────── Top bar ───────────── */
+
+.topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 27px 20px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--background);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.eyebrow,
+.section-kicker {
+    margin: 0;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.topbar h1 {
+    margin: 7px 0 4px;
+    font-size: 28px;
+    line-height: 1.05;
+    letter-spacing: -.04em;
+    font-weight: 700;
+}
+
+.subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+.icon-button {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--line-strong);
+    border-radius: 50%;
+    background: var(--card);
+    color: var(--foreground);
+}
+
+.icon-button:hover {
+    background: var(--surface);
+}
+
+.icon-button svg {
+    width: 17px;
+}
+
+.lock-in-button.is-active {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+    color: var(--primary);
+}
+
+/* ───────────── Main content ───────────── */
+
+.content {
+    padding: 22px 20px 26px;
+}
+
+/* ───────────── Bottom navigation ───────────── */
+
+.bottom-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    max-width: 720px;
+    margin: auto;
+    padding: 9px 12px max(9px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
+    background: color-mix(in srgb, var(--background) 94%, transparent);
+    backdrop-filter: blur(12px);
+}
+
+.bottom-nav button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 10px;
+}
+
+.bottom-nav button.active {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.bottom-nav svg {
+    width: 19px;
+    height: 19px;
+}

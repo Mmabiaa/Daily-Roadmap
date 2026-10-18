@@ -1,0 +1,45 @@
+/* ───────────── Design tokens ───────────── */
+
+:root {
+    --background: #ffffff;
+    --foreground: #17202a;
+    --card: #ffffff;
+    --muted: #66727e;
+    --line: #e7ebef;
+    --line-strong: #d7dee5;
+    --primary: #275d87;
+    --primary-soft: #edf5fb;
+    --surface: #f7f9fb;
+    --class: #3478ad;
+    --study: #7055a6;
+    --project: #177f78;
+    --body: #b96732;
+    --eat: #a87816;
+    --people: #a54f72;
+    --rest: #4e8753;
+    --chores: #68727c;
+    --sleep: #52677d;
+    color-scheme: light;
+}
+
+.dark {
+    --background: #15181b;
+    --foreground: #f1f4f6;
+    --card: #1d2227;
+    --muted: #a2adb7;
+    --line: #2c343c;
+    --line-strong: #3b4650;
+    --primary: #8ec5ed;
+    --primary-soft: #1d3040;
+    --surface: #1a1f24;
+    --class: #76b4e6;
+    --study: #b8a0e4;
+    --project: #65c4bc;
+    --body: #e09b6a;
+    --eat: #e1bb63;
+    --people: #e19ab6;
+    --rest: #91c895;
+    --chores: #aab4bd;
+    --sleep: #a7bdd4;
+    color-scheme: dark;
+}
