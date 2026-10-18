@@ -38,11 +38,11 @@ export function TodayView({
             <div className="today-hero-section">
                 <section className="today-intro">
                     <div>
-                        <p className="section-kicker">Your plan for today</p>
+                        <pre className="section-kicker"> Your plan for today</pre>
                         <h2>One block at a time.</h2>
-                        <p>
-                            {doneCount} of {blocks.length} complete · {streak} day minimum streak
-                        </p>
+                        <pre>
+                              {doneCount} of {blocks.length} complete
+                        </pre>
                     </div>
                     <Ring value={completion} />
                 </section>

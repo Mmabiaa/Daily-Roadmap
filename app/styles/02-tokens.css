@@ -2,12 +2,12 @@
 
 :root {
     --background: #ffffff;
-    --foreground: #17202a;
+    --foreground: #763c6b;
     --card: #ffffff;
     --muted: #66727e;
     --line: #e7ebef;
     --line-strong: #d7dee5;
-    --primary: #15517f;
+    --primary: #763c6b;
     --primary-soft: #edf5fb;
     --surface: #f7f9fb;
     --class: #3478ad;
@@ -24,12 +24,12 @@
 
 .dark {
     --background: #15181b;
-    --foreground: #f1f4f6;
+    --foreground: #763c6b;
     --card: #1d2227;
     --muted: #a2adb7;
     --line: #2c343c;
     --line-strong: #3b4650;
-    --primary: #8ec5ed;
+    --primary: #e883d5;
     --primary-soft: #1d3040;
     --surface: #1a1f24;
     --class: #76b4e6;
