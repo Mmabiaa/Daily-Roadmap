@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/mongodb'
-import { verifyPin, generateToken, setSession } from '@/lib/auth'
+import { verifyPin, generateToken } from '@/lib/auth'
 
 export async function POST(request: Request) {
   try {
@@ -33,9 +33,17 @@ export async function POST(request: Request) {
     }
     
     const token = generateToken(user._id.toString())
-    await setSession(token)
     
-    return NextResponse.json({ success: true })
+    const response = NextResponse.json({ success: true })
+    response.cookies.set('auth-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7 days
+      path: '/',
+    })
+    
+    return response
   } catch (error) {
     console.error('Sign in error:', error)
     return NextResponse.json(
