@@ -1,17 +1,67 @@
 /* ───────────── Focus mode page ───────────── */
 
 .focus-page {
+    --category: var(--primary);
+
     position: fixed;
     inset: 0;
     z-index: 40;
+    overflow-y: auto;
+    color: var(--foreground);
+    /* soft wash of the block's category colour at the top, then the theme background */
+    background:
+        radial-gradient(90% 46% at 50% 0%,
+            color-mix(in srgb, var(--category) 12%, transparent),
+            transparent 70%),
+        var(--background);
+}
+
+.focus-page.category-class {
+    --category: var(--class);
+}
+
+.focus-page.category-study {
+    --category: var(--study);
+}
+
+.focus-page.category-project,
+.focus-page.category-side-project {
+    --category: var(--project);
+}
+
+.focus-page.category-body {
+    --category: var(--body);
+}
+
+.focus-page.category-eat {
+    --category: var(--eat);
+}
+
+.focus-page.category-people {
+    --category: var(--people);
+}
+
+.focus-page.category-rest {
+    --category: var(--rest);
+}
+
+.focus-page.category-chores {
+    --category: var(--chores);
+}
+
+.focus-page.category-sleep {
+    --category: var(--sleep);
+}
+
+.focus-inner {
     display: flex;
     flex-direction: column;
-    max-width: 720px;
+    gap: 20px;
+    min-height: 100%;
+    max-width: 520px;
     margin: 0 auto;
-    padding: 20px 20px max(20px, env(safe-area-inset-bottom));
-    overflow-y: auto;
-    background: var(--background);
-    color: var(--foreground);
+    padding:
+        max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
 }
 
 /* ───────────── Header ───────────── */
@@ -21,298 +71,283 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 4px 0 20px;
 }
 
 .focus-tag {
-    --category: var(--primary);
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
+    gap: 8px;
+    padding: 8px 14px;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--card);
-    color: var(--category);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .08em;
-    text-transform: uppercase;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 600;
 }
 
-.focus-tag svg {
-    width: 12px;
-    height: 12px;
+.focus-tag i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--category);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--category) 22%, transparent);
 }
-
-.focus-tag.category-class        { --category: var(--class); }
-.focus-tag.category-study        { --category: var(--study); }
-.focus-tag.category-side-project { --category: var(--project); }
-.focus-tag.category-body         { --category: var(--body); }
-.focus-tag.category-eat          { --category: var(--eat); }
-.focus-tag.category-people       { --category: var(--people); }
-.focus-tag.category-rest         { --category: var(--rest); }
-.focus-tag.category-chores       { --category: var(--chores); }
-.focus-tag.category-sleep        { --category: var(--sleep); }
 
 .focus-close {
     width: 44px;
     height: 44px;
-    background: color-mix(in srgb, var(--card) 90%, transparent);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--foreground);
 }
 
-/* ───────────── Body block ───────────── */
+.focus-close:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+}
+
+/* ───────────── Body ───────────── */
 
 .focus-body {
-    --category: var(--primary);
+    flex: 1;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    padding: 4px 0 0 16px;
-    border-left: 3px solid var(--category);
+    justify-content: center;
+    gap: 32px;
 }
 
-.focus-body.category-class        { --category: var(--class); }
-.focus-body.category-study        { --category: var(--study); }
-.focus-body.category-side-project { --category: var(--project); }
-.focus-body.category-body         { --category: var(--body); }
-.focus-body.category-eat          { --category: var(--eat); }
-.focus-body.category-people       { --category: var(--people); }
-.focus-body.category-rest         { --category: var(--rest); }
-.focus-body.category-chores       { --category: var(--chores); }
-.focus-body.category-sleep        { --category: var(--sleep); }
-
-.focus-body .section-kicker {
+.focus-when {
+    margin: 0 0 8px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
-    letter-spacing: .1em;
+    font-variant-numeric: tabular-nums;
 }
 
 .focus-title {
-    max-width: 22ch;
-    margin: 6px 0 0;
-    font-size: clamp(24px, 6vw, 32px);
-    line-height: 1.15;
-    letter-spacing: -.035em;
-    font-weight: 700;
+    max-width: 16ch;
+    margin: 0;
+    font-size: clamp(30px, 8.5vw, 38px);
+    font-weight: 600;
+    line-height: 1.06;
+    letter-spacing: -.045em;
+    text-wrap: balance;
 }
 
 .focus-note {
-    max-width: 34ch;
-    margin: 8px 0 0;
+    max-width: 38ch;
+    margin: 10px 0 0;
     color: var(--muted);
-    font-size: 14px;
+    font-size: 14.5px;
     line-height: 1.5;
 }
 
-/* ───────────── Stack (clock + bar + actions) ───────────── */
+/* ───────────── Timer ring ───────────── */
 
-.focus-stack {
+.focus-timer {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    width: 100%;
-    margin-top: 40px;
+    align-items: center;
+    gap: 18px;
 }
 
-/* ───────────── Clock ───────────── */
+.focus-ring {
+    position: relative;
+    width: min(78vw, 300px);
+    aspect-ratio: 1;
+}
+
+/* raised white disc inside the ring */
+.focus-ring-disc {
+    position: absolute;
+    inset: 9%;
+    border-radius: 50%;
+    background: var(--card);
+    box-shadow:
+        inset 0 0 0 1px var(--line),
+        0 22px 40px -26px color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+
+.focus-ring svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+    overflow: visible;
+}
+
+.focus-ring circle {
+    fill: none;
+    stroke-width: 9;
+}
+
+.focus-ring-track {
+    stroke: color-mix(in srgb, var(--foreground) 9%, transparent);
+}
+
+.focus-ring-bar {
+    stroke: var(--category);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear, opacity .2s ease;
+}
 
 .focus-clock {
+    position: absolute;
+    inset: 0;
     display: flex;
-    align-items: baseline;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 10px;
+}
+
+.focus-badge {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--category) 16%, var(--card));
+    color: var(--category);
+}
+
+.focus-badge svg {
+    width: 15px;
+    height: 15px;
 }
 
 .focus-time {
     display: inline-flex;
     align-items: baseline;
-    font-weight: 700;
-    line-height: .9;
+    font-size: clamp(46px, 13.5vw, 62px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -.05em;
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
-    letter-spacing: -.06em;
-    color: var(--foreground);
-    text-shadow: 0 1px 0 color-mix(in srgb, var(--background) 60%, transparent);
-}
-
-.focus-time-mins {
-    font-size: clamp(56px, 16vw, 88px);
-    letter-spacing: -.07em;
 }
 
 .focus-time-sep {
-    font-size: clamp(56px, 16vw, 88px);
-    opacity: .55;
-    margin: 0 .02em;
+    margin: 0 .03em;
+    opacity: .45;
 }
 
-.focus-time-secs {
-    font-size: clamp(40px, 11.5vw, 64px);
-    opacity: .7;
-    letter-spacing: -.05em;
-}
-
-.focus-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .14em;
-    text-transform: uppercase;
+.focus-caption {
     color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
 }
 
-.focus-state-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-    transition: background .2s ease;
+.focus-total {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
 }
 
-.focus-state[data-running="true"] .focus-state-dot {
-    background: var(--category, var(--primary));
-}
-
-/* ───────────── Progress ───────────── */
-
-.focus-progress {
-    position: relative;
-    width: 100%;
-    height: 3px;
-    border-radius: 2px;
-    background: var(--line);
-    overflow: hidden;
-}
-
-.focus-progress::before {
-    content: '';
+/* visually hidden, still read by screen readers */
+.focus-sr {
     position: absolute;
-    top: -2px;
-    left: 50%;
     width: 1px;
-    height: 7px;
-    background: var(--line-strong);
-    z-index: 1;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
 }
 
-.focus-progress span {
-    display: block;
-    width: 100%;
-    height: 100%;
-    border-radius: 2px;
-    background: var(--category, var(--primary));
-    transform-origin: left center;
-    transition: transform .25s ease-out;
-}
-
-/* ───────────── Actions ───────────── */
+/* ───────────── Actions: one pill, two options (thumb zone) ───────────── */
 
 .focus-actions {
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
 }
 
-.focus-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 18px;
-    border: 0;
-    border-radius: 10px;
-    background: var(--primary);
-    color: var(--background);
-    font-size: 14px;
-    font-weight: 700;
-    box-shadow:
-        0 1px 0 rgb(255 255 255 / .12) inset,
-        0 6px 16px -10px color-mix(in srgb, var(--primary) 60%, transparent);
-    transition: transform .12s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-}
-
-.focus-primary:hover {
-    box-shadow:
-        0 1px 0 rgb(255 255 255 / .14) inset,
-        0 8px 20px -10px color-mix(in srgb, var(--primary) 70%, transparent);
-}
-
-.focus-primary:active {
-    transform: scale(.97);
-}
-
-.focus-primary:focus-visible {
-    outline: 2px solid var(--foreground);
-    outline-offset: 3px;
-}
-
-.focus-primary svg {
-    width: 15px;
-    height: 15px;
-    color: currentColor;
-}
-
-.focus-primary[data-running="true"] {
-    background: var(--card);
-    color: var(--foreground);
-    border: 1px solid var(--line-strong);
-    box-shadow: none;
-}
-
-.focus-primary[data-running="true"]:hover {
-    border-color: var(--muted);
-}
-
+.focus-primary,
 .focus-ghost {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--card);
-    color: var(--foreground);
-    font-size: 13px;
-    font-weight: 600;
-    transition: transform .12s ease, border-color .15s ease;
+    justify-content: center;
+    gap: 9px;
+    flex: 1;
+    min-height: 54px;
+    border-radius: 999px;
+    font-size: 16px;
+    font-weight: 700;
+    transition: transform .12s ease, background .15s ease, color .15s ease;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
 }
 
-.focus-ghost:hover {
-    border-color: var(--line-strong);
+/* Start = primary colour, Pause = dark pill (like the reference) */
+.focus-primary {
+    border: 0;
+    background: var(--primary);
+    color: var(--background);
+    box-shadow: 0 10px 22px -14px var(--primary);
 }
 
+.focus-primary[data-running="true"] {
+    background: var(--foreground);
+    color: var(--background);
+    box-shadow: none;
+}
+
+.focus-ghost {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.focus-ghost:hover {
+    color: var(--foreground);
+}
+
+.focus-primary:active,
 .focus-ghost:active {
     transform: scale(.97);
 }
 
+.focus-primary:focus-visible,
 .focus-ghost:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
-.focus-ghost svg {
-    width: 14px;
-    height: 14px;
-    color: var(--muted);
+.focus-primary svg {
+    width: 18px;
+    height: 18px;
+    color: currentColor;
+}
+
+/* ───────────── Larger screens ───────────── */
+
+@media (min-width: 720px) {
+    .focus-inner {
+        padding-block: 36px;
+    }
 }
 
 /* ───────────── Reduced motion ───────────── */
 
 @media (prefers-reduced-motion: reduce) {
+
     .focus-primary,
     .focus-ghost,
-    .focus-state-dot,
-    .focus-progress span {
+    .focus-ring-bar {
         transition: none !important;
     }
+
     .focus-primary:active,
     .focus-ghost:active {
         transform: none;
