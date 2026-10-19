@@ -39,6 +39,18 @@
     -webkit-overflow-scrolling: touch;
 }
 
+/* Hide scrollbars everywhere for an app-like feel (content stays scrollable) */
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* legacy Edge / IE */
+}
+
+*::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none; /* Chrome, Safari, newer Edge */
+}
+
 /* Better touch feedback */
 .icon-button,
 .check-button,
