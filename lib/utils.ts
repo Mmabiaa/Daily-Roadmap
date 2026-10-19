@@ -7,8 +7,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export const keyFor = (date: string, day: Day, i: number) =>
-  `fyr:${date}:${day}:${i}`
+/** Stable per-block key. Keyed by start time (unique within a day) so that
+ *  adding or removing events never shifts another block's check state. */
+export const keyFor = (date: string, day: Day, time: string) =>
+  `fyr:${date}:${day}:${time}`
 
 export const todayInfo = () => {
   const d = new Date()

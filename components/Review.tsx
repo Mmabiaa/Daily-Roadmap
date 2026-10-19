@@ -68,7 +68,7 @@ export function Review({ reviews, setReviews, onSaved }: Props) {
 
             <p className={`saved-note ${hasAny ? 'is-active' : ''}`}>
                 <Check aria-hidden="true" />
-                {hasAny ? 'Saved privately on this device' : 'Your notes stay on this device'}
+                {hasAny ? 'Saved to your account' : 'Your notes are saved to your account'}
             </p>
         </main>
     )

@@ -187,15 +187,81 @@
     height: 19px;
 }
 
+/* ───────────── Floating add button (Today + Week only) ───────────── */
+
+.fab {
+    position: fixed;
+    /* keep the button inside the centred 720px column on wide screens */
+    right: max(20px, calc(50vw - 340px));
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border: 1px solid color-mix(in srgb, var(--primary) 55%, transparent);
+    border-radius: 50%;
+    background: var(--primary);
+    color: var(--background);
+    box-shadow:
+        0 1px 0 rgb(255 255 255 / .18) inset,
+        0 16px 30px -14px color-mix(in srgb, var(--primary) 80%, transparent);
+    transition: transform .14s ease, box-shadow .18s ease, background .18s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    animation: fab-in .26s cubic-bezier(.22, 1, .36, 1);
+}
+
+.fab:hover {
+    background: color-mix(in srgb, var(--primary) 88%, black);
+}
+
+.fab:active {
+    transform: scale(.92);
+}
+
+.fab:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+}
+
+.fab svg {
+    width: 24px;
+    height: 24px;
+}
+
+@keyframes fab-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(.9);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
 /* ───────────── Reduced motion ───────────── */
 
 @media (prefers-reduced-motion: reduce) {
+
     .icon-button,
     .bottom-nav button {
         transition: none;
     }
+
     .icon-button:active,
     .bottom-nav button:active {
+        transform: none;
+    }
+
+    .fab {
+        animation: none;
+        transition: none;
+    }
+
+    .fab:active {
         transform: none;
     }
 }

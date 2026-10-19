@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Block, Day, days, schedule } from '@/lib/schedule'
+import type { Event } from '@/lib/models'
 import { dateForDay, keyFor, minutes, todayInfo, duration, haptic } from '@/lib/utils'
 
 import { BottomNav } from './BottomNav'
@@ -13,8 +14,26 @@ import { Topbar } from './Topbar'
 import { WeekView } from './WeekView'
 import { Toast } from './Toast'
 import { Confetti } from './Confetti'
+import FloatingActionButton from './FloatingActionButton'
+import EventFormModal from './EventFormModal'
 
 type View = 'today' | 'week' | 'review' | 'guide'
+
+type StoredProgress = {
+    checks: Record<string, boolean>
+    reviews: Record<string, string[]>
+    energy: Record<string, 'low' | 'okay' | 'high'>
+    theme: 'light' | 'dark' | null
+}
+
+/** Entries that differ between the last saved snapshot and the current state. */
+const changed = <T,>(prev: Record<string, T>, next: Record<string, T>): Record<string, T> => {
+    const out: Record<string, T> = {}
+    for (const [key, value] of Object.entries(next)) {
+        if (JSON.stringify(prev[key]) !== JSON.stringify(value)) out[key] = value
+    }
+    return out
+}
 
 export function AppShell() {
     const [view, setView] = useState<View>('today')
@@ -31,45 +50,126 @@ export function AppShell() {
     const [timerRunning, setTimerRunning] = useState(false)
     const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'info' } | null>(null)
     const [celebrate, setCelebrate] = useState(false)
+    const [events, setEvents] = useState<Event[] | null>(null)
+    const [formOpen, setFormOpen] = useState(false)
+    const [editTarget, setEditTarget] = useState<Event | null>(null)
 
-    // Hydrate from localStorage + start clock AFTER mount (avoids SSR mismatch)
+    // Progress lives in the database. `loaded` gates persistence until the
+    // initial fetch resolves; `saved` is the last snapshot written to the API.
+    const loaded = useRef(false)
+    const saved = useRef<StoredProgress>({ checks: {}, reviews: {}, energy: {}, theme: null })
+
+    // Load events from the database. Until they arrive (or if the request
+    // fails) the bundled schedule is used, so the view is never empty.
+    const loadEvents = useCallback(async () => {
+        try {
+            const res = await fetch('/api/events', { cache: 'no-store' })
+            if (!res.ok) return
+            setEvents(await res.json())
+        } catch {
+            /* keep the bundled fallback schedule */
+        }
+    }, [])
+
+    useEffect(() => {
+        loadEvents()
+    }, [loadEvents])
+
+    // Day → blocks, built from the database; falls back to the bundled plan.
+    const scheduleMap = useMemo<Record<Day, Block[]>>(() => {
+        if (!events) return schedule
+        const map = {} as Record<Day, Block[]>
+        for (const day of days) {
+            map[day] = events
+                .filter((e) => e.day === day)
+                .sort((a, b) => minutes(a.time) - minutes(b.time))
+                .map((e) => ({
+                    id: e._id,
+                    time: e.time,
+                    title: e.title,
+                    category: e.category,
+                    note: e.note,
+                    essential: e.essential,
+                }))
+        }
+        return map
+    }, [events])
+
+    // Hydrate progress from the database + start the clock AFTER mount
+    // (avoids SSR mismatch). Nothing is read from or written to localStorage.
     useEffect(() => {
         setMounted(true)
         setNow(new Date())
-        try {
-            setChecks(JSON.parse(localStorage.getItem('fyr-checks') || '{}'))
-            setReviews(JSON.parse(localStorage.getItem('fyr-reviews') || '{}'))
-            setEnergy(JSON.parse(localStorage.getItem('fyr-energy') || '{}'))
-            const savedTheme = localStorage.getItem('fyr-theme') as 'light' | 'dark' | null
-            setTheme(
-                savedTheme ||
-                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-            )
-        } catch { }
+
+        let cancelled = false
+        ;(async () => {
+            try {
+                const res = await fetch('/api/progress', { cache: 'no-store' })
+                if (!res.ok) return
+                const data = await res.json()
+                if (cancelled) return
+                const next: StoredProgress = {
+                    checks: data.checks ?? {},
+                    reviews: data.reviews ?? {},
+                    energy: data.energy ?? {},
+                    theme: data.theme ?? null,
+                }
+                setChecks(next.checks)
+                setReviews(next.reviews)
+                setEnergy(next.energy)
+                setTheme(
+                    next.theme ||
+                    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                )
+                saved.current = next
+            } catch {
+                /* offline — keep the empty state and retry on the next edit */
+            } finally {
+                if (!cancelled) loaded.current = true
+            }
+        })()
 
         const id = setInterval(() => setNow(new Date()), 30000)
-        return () => clearInterval(id)
+        return () => {
+            cancelled = true
+            clearInterval(id)
+        }
     }, [])
 
     // Apply theme
     useEffect(() => {
         if (!mounted) return
         document.documentElement.classList.toggle('dark', theme === 'dark')
-        localStorage.setItem('fyr-theme', theme)
     }, [theme, mounted])
 
-    // Persist
+    // Persist progress to the database (debounced). Only the entries that
+    // actually changed since the last save are sent.
     useEffect(() => {
-        if (mounted) localStorage.setItem('fyr-checks', JSON.stringify(checks))
-    }, [checks, mounted])
+        if (!loaded.current) return
+        const id = setTimeout(() => {
+            const prev = saved.current
+            const body: Record<string, unknown> = {}
 
-    useEffect(() => {
-        if (mounted) localStorage.setItem('fyr-reviews', JSON.stringify(reviews))
-    }, [reviews, mounted])
+            const checksDelta = changed(prev.checks, checks)
+            if (Object.keys(checksDelta).length) body.checks = checksDelta
+            const reviewsDelta = changed(prev.reviews, reviews)
+            if (Object.keys(reviewsDelta).length) body.reviews = reviewsDelta
+            const energyDelta = changed(prev.energy, energy)
+            if (Object.keys(energyDelta).length) body.energy = energyDelta
+            if (prev.theme !== theme) body.theme = theme
 
-    useEffect(() => {
-        if (mounted) localStorage.setItem('fyr-energy', JSON.stringify(energy))
-    }, [energy, mounted])
+            if (Object.keys(body).length === 0) return
+            saved.current = { checks, reviews, energy, theme }
+            fetch('/api/progress', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            }).catch(() => {
+                /* keep local state; the next change retries the save */
+            })
+        }, 600)
+        return () => clearTimeout(id)
+    }, [checks, reviews, energy, theme])
 
     // Focus timer tick
     useEffect(() => {
@@ -85,10 +185,29 @@ export function AppShell() {
         return () => clearTimeout(id)
     }, [toast])
 
-    // Register service worker (production only)
+    // Register service worker (production only).
+    // We never let the HTTP cache serve sw.js and we reload once when a newly
+    // deployed worker takes control, so open tabs move to the latest version.
     useEffect(() => {
-        if (mounted && process.env.NODE_ENV === 'production') {
-            navigator.serviceWorker?.register('/sw.js').catch(() => { })
+        if (!mounted || process.env.NODE_ENV !== 'production') return
+        if (!('serviceWorker' in navigator)) return
+
+        const hadController = Boolean(navigator.serviceWorker.controller)
+        let reloading = false
+        const onControllerChange = () => {
+            if (!hadController || reloading) return
+            reloading = true
+            window.location.reload()
+        }
+        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+
+        navigator.serviceWorker
+            .register('/sw.js', { updateViaCache: 'none' })
+            .then((registration) => registration.update().catch(() => { }))
+            .catch(() => { })
+
+        return () => {
+            navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
         }
     }, [mounted])
 
@@ -99,7 +218,7 @@ export function AppShell() {
     const today = todayInfo()
     const activeDay = view === 'today' ? today.day : selectedDay
     const date = dateForDay(activeDay)
-    const blocks = schedule[activeDay]
+    const blocks = scheduleMap[activeDay]
     const shown = minimum ? blocks.filter((b) => b.essential) : blocks
 
     const isToday = activeDay === today.day
@@ -114,12 +233,12 @@ export function AppShell() {
         : -1
 
     const completion = blocks.length
-        ? blocks.filter((_, i) => checks[keyFor(date, activeDay, i)]).length / blocks.length
+        ? blocks.filter((b) => checks[keyFor(date, activeDay, b.time)]).length / blocks.length
         : 0
 
     const essentialDone = blocks
         .filter((b) => b.essential)
-        .every((b) => checks[keyFor(date, activeDay, blocks.indexOf(b))])
+        .every((b) => checks[keyFor(date, activeDay, b.time)])
 
     const nextBlock =
         currentIndex >= 0
@@ -134,27 +253,26 @@ export function AppShell() {
         for (let x = 0; x < 30; x++) {
             const day = days[(d.getDay() + 6) % 7] as Day
             const date = dateForDay(day, d)
-            const arr = schedule[day]
+            const arr = scheduleMap[day]
             const ok = arr
                 .filter((b) => b.essential)
-                .every((b) => checks[keyFor(date, day, arr.indexOf(b))])
+                .every((b) => checks[keyFor(date, day, b.time)])
             if (!ok) break
             count++
             d.setDate(d.getDate() - 1)
         }
         return count
-    }, [checks])
+    }, [checks, scheduleMap])
 
     const toggle = (i: number) => {
+        const block = blocks[i]
+        if (!block) return
         haptic(6)
-        const key = keyFor(date, activeDay, i)
+        const key = keyFor(date, activeDay, block.time)
         const willBeDone = !checks[key]
         setChecks((v) => ({ ...v, [key]: willBeDone }))
-        if (willBeDone) {
-            const block = blocks[i]
-            if (block?.essential) {
-                setToast({ message: 'Essential done · nice', tone: 'success' })
-            }
+        if (willBeDone && block.essential) {
+            setToast({ message: 'Essential done · nice', tone: 'success' })
         }
     }
 
@@ -179,6 +297,19 @@ export function AppShell() {
         haptic(10)
         setLockIn(next)
         setTimerRunning(next)
+    }
+
+    const openNewEvent = () => {
+        haptic(6)
+        setEditTarget(null)
+        setFormOpen(true)
+    }
+
+    const openEditEvent = (block: Block) => {
+        if (!block.id) return
+        haptic(6)
+        setEditTarget(events?.find((e) => e._id === block.id) ?? null)
+        setFormOpen(true)
     }
 
     // Celebrate when essential day complete
@@ -254,6 +385,7 @@ export function AppShell() {
                         minimum={minimum}
                         setMinimum={setMinimum}
                         onToggle={toggle}
+                        onEdit={openEditEvent}
                         mounted={mounted}
                     />
                 )}
@@ -276,6 +408,7 @@ export function AppShell() {
                         minimum={minimum}
                         setMinimum={setMinimum}
                         onToggle={toggle}
+                        onEdit={openEditEvent}
                     />
                 )}
 
@@ -283,7 +416,7 @@ export function AppShell() {
                     <Review
                         reviews={reviews}
                         setReviews={setReviews}
-                        onSaved={() => setToast({ message: 'Saved privately', tone: 'success' })}
+                        onSaved={() => setToast({ message: 'Saved to your account', tone: 'success' })}
                     />
                 )}
                 {view === 'guide' && <Guide />}
@@ -291,6 +424,24 @@ export function AppShell() {
 
             {toast && <Toast message={toast.message} tone={toast.tone} />}
             {celebrate && <Confetti />}
+
+            {!lockIn && (view === 'today' || view === 'week') && (
+                <FloatingActionButton onClick={openNewEvent} />
+            )}
+
+            <EventFormModal
+                isOpen={formOpen}
+                onClose={() => setFormOpen(false)}
+                onSave={() => {
+                    setToast({
+                        message: editTarget ? 'Event updated' : 'Event added',
+                        tone: 'success',
+                    })
+                    loadEvents()
+                }}
+                event={editTarget}
+                defaultDay={activeDay}
+            />
 
             <BottomNav view={view} setView={setView} />
         </div>

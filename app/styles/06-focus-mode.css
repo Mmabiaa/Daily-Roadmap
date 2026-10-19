@@ -1,17 +1,44 @@
 /* ───────────── Focus mode page ───────────── */
 
 .focus-page {
+    --category: var(--primary);
+
     position: fixed;
     inset: 0;
     z-index: 40;
-    display: flex;
-    flex-direction: column;
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 20px 20px max(20px, env(safe-area-inset-bottom));
-    overflow-y: auto;
-    background: var(--background);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    overflow: hidden;              /* no scroll — everything fits */
     color: var(--foreground);
+    background:
+        radial-gradient(120% 55% at 50% -10%,
+            color-mix(in srgb, var(--category) 14%, transparent),
+            transparent 65%),
+        var(--background);
+}
+
+.focus-page.category-class  { --category: var(--class); }
+.focus-page.category-study  { --category: var(--study); }
+.focus-page.category-project,
+.focus-page.category-side-project { --category: var(--project); }
+.focus-page.category-body   { --category: var(--body); }
+.focus-page.category-eat    { --category: var(--eat); }
+.focus-page.category-people { --category: var(--people); }
+.focus-page.category-rest   { --category: var(--rest); }
+.focus-page.category-chores { --category: var(--chores); }
+.focus-page.category-sleep  { --category: var(--sleep); }
+
+.focus-inner {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: clamp(12px, 3vh, 28px);
+    width: min(100%, 520px);
+    height: 100%;
+    margin: 0 auto;
+    padding:
+        max(16px, env(safe-area-inset-top))
+        20px
+        max(16px, env(safe-area-inset-bottom));
 }
 
 /* ───────────── Header ───────────── */
@@ -21,287 +48,275 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 4px 0 20px;
 }
 
 .focus-tag {
-    --category: var(--primary);
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--card);
-    color: var(--category);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .08em;
-    text-transform: uppercase;
+    gap: 8px;
+    padding: 6px 12px 6px 8px;
+    border-radius: 8px;            /* squarer — less "chip" */
+    background: color-mix(in srgb, var(--category) 10%, transparent);
+    color: var(--foreground);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .01em;
 }
 
-.focus-tag svg {
-    width: 12px;
-    height: 12px;
+.focus-tag i {
+    width: 6px;
+    height: 6px;
+    border-radius: 2px;            /* tiny square dot, not a glowing circle */
+    background: var(--category);
 }
-
-.focus-tag.category-class        { --category: var(--class); }
-.focus-tag.category-study        { --category: var(--study); }
-.focus-tag.category-side-project { --category: var(--project); }
-.focus-tag.category-body         { --category: var(--body); }
-.focus-tag.category-eat          { --category: var(--eat); }
-.focus-tag.category-people       { --category: var(--people); }
-.focus-tag.category-rest         { --category: var(--rest); }
-.focus-tag.category-chores       { --category: var(--chores); }
-.focus-tag.category-sleep        { --category: var(--sleep); }
 
 .focus-close {
-    width: 44px;
-    height: 44px;
-    background: color-mix(in srgb, var(--card) 90%, transparent);
-    -webkit-backdrop-filter: blur(8px);
-    backdrop-filter: blur(8px);
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--muted);
+    transition: color .15s ease, background .15s ease;
 }
 
-/* ───────────── Body block ───────────── */
+.focus-close:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 6%, transparent); }
+
+.focus-close:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* ───────────── Body (intro + timer share the middle row) ───────────── */
 
 .focus-body {
-    --category: var(--primary);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 4px 0 0 16px;
-    border-left: 3px solid var(--category);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: clamp(10px, 2.5vh, 24px);
+    min-height: 0;                 /* allows inner content to shrink */
 }
 
-.focus-body.category-class        { --category: var(--class); }
-.focus-body.category-study        { --category: var(--study); }
-.focus-body.category-side-project { --category: var(--project); }
-.focus-body.category-body         { --category: var(--body); }
-.focus-body.category-eat          { --category: var(--eat); }
-.focus-body.category-people       { --category: var(--people); }
-.focus-body.category-rest         { --category: var(--rest); }
-.focus-body.category-chores       { --category: var(--chores); }
-.focus-body.category-sleep        { --category: var(--sleep); }
-
-.focus-body .section-kicker {
+.focus-when {
+    margin: 0 0 6px;
     color: var(--muted);
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 600;
-    letter-spacing: .1em;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
 }
 
 .focus-title {
-    max-width: 22ch;
-    margin: 6px 0 0;
-    font-size: clamp(24px, 6vw, 32px);
-    line-height: 1.15;
+    margin: 0;
+    font-size: clamp(24px, 6.5vw, 34px);
+    font-weight: 600;
+    line-height: 1.08;
     letter-spacing: -.035em;
-    font-weight: 700;
+    text-wrap: balance;
+    /* keep the title to 2 lines max so it can't push the timer off-screen */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .focus-note {
-    max-width: 34ch;
     margin: 8px 0 0;
     color: var(--muted);
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
-/* ───────────── Stack (clock + bar + actions) ───────────── */
+/* ───────────── Timer ───────────── */
 
-.focus-stack {
+.focus-timer {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    width: 100%;
-    margin-top: 40px;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(8px, 1.8vh, 16px);
+    min-height: 0;
 }
 
-/* ───────────── Clock ───────────── */
+/* The ring sizes itself to the *smaller* of width and available height */
+.focus-ring {
+    position: relative;
+    width: min(72vw, 300px, 100%);
+    /* cap by remaining vertical space: header (~56) + intro (~110) + actions (~60) + gaps */
+    height: min(72vw, 300px, calc(100dvh - 300px));
+    aspect-ratio: 1;
+    flex: 0 1 auto;
+}
+
+/* No raised white disc — instead a soft inner fill, much calmer */
+.focus-ring::before {
+    content: "";
+    position: absolute;
+    inset: 7%;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--category) 4%, var(--card));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.focus-ring svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+    overflow: visible;
+}
+
+.focus-ring circle {
+    fill: none;
+    stroke-width: 7;
+}
+
+.focus-ring-track {
+    stroke: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.focus-ring-bar {
+    stroke: var(--category);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 1s linear, opacity .2s ease;
+}
 
 .focus-clock {
+    position: absolute;
+    inset: 0;
     display: flex;
-    align-items: baseline;
-    gap: 10px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
 }
+
+.focus-badge {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--category);
+    opacity: .85;
+}
+
+.focus-badge svg { width: 14px; height: 14px; }
 
 .focus-time {
     display: inline-flex;
     align-items: baseline;
-    font-weight: 700;
-    line-height: .9;
+    font-size: clamp(40px, 12vw, 58px);
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -.045em;
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
-    letter-spacing: -.06em;
-    color: var(--foreground);
-    text-shadow: 0 1px 0 color-mix(in srgb, var(--background) 60%, transparent);
-}
-
-.focus-time-mins {
-    font-size: clamp(56px, 16vw, 88px);
-    letter-spacing: -.07em;
 }
 
 .focus-time-sep {
-    font-size: clamp(56px, 16vw, 88px);
-    opacity: .55;
-    margin: 0 .02em;
+    margin: 0 .04em;
+    opacity: .35;
+    transform: translateY(-.04em);
 }
 
-.focus-time-secs {
-    font-size: clamp(40px, 11.5vw, 64px);
-    opacity: .7;
-    letter-spacing: -.05em;
-}
-
-.focus-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .14em;
-    text-transform: uppercase;
+.focus-caption {
     color: var(--muted);
+    font-size: 12.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
 }
 
-.focus-state-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted);
-    transition: background .2s ease;
+.focus-total {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    letter-spacing: .02em;
 }
 
-.focus-state[data-running="true"] .focus-state-dot {
-    background: var(--category, var(--primary));
-}
-
-/* ───────────── Progress ───────────── */
-
-.focus-progress {
-    position: relative;
-    width: 100%;
-    height: 3px;
-    border-radius: 2px;
-    background: var(--line);
-    overflow: hidden;
-}
-
-.focus-progress::before {
-    content: '';
+.focus-sr {
     position: absolute;
-    top: -2px;
-    left: 50%;
-    width: 1px;
-    height: 7px;
-    background: var(--line-strong);
-    z-index: 1;
+    width: 1px; height: 1px;
+    margin: -1px; padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
 }
 
-.focus-progress span {
-    display: block;
-    width: 100%;
-    height: 100%;
-    border-radius: 2px;
-    background: var(--category, var(--primary));
-    transform-origin: left center;
-    transition: transform .25s ease-out;
-}
-
-/* ───────────── Actions ───────────── */
+/* ───────────── Actions ─────────────
+   No outer pill. Two flat buttons on the page background.
+   Start = solid category-tinted block, Reset = quiet text. */
 
 .focus-actions {
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 10px;
+    width: 100%;
 }
 
-.focus-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 12px 18px;
-    border: 0;
-    border-radius: 10px;
-    background: var(--primary);
-    color: var(--background);
-    font-size: 14px;
-    font-weight: 700;
-    box-shadow:
-        0 1px 0 rgb(255 255 255 / .12) inset,
-        0 6px 16px -10px color-mix(in srgb, var(--primary) 60%, transparent);
-    transition: transform .12s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
-    -webkit-tap-highlight-color: transparent;
-    touch-action: manipulation;
-}
-
-.focus-primary:hover {
-    box-shadow:
-        0 1px 0 rgb(255 255 255 / .14) inset,
-        0 8px 20px -10px color-mix(in srgb, var(--primary) 70%, transparent);
-}
-
-.focus-primary:active {
-    transform: scale(.97);
-}
-
-.focus-primary:focus-visible {
-    outline: 2px solid var(--foreground);
-    outline-offset: 3px;
-}
-
-.focus-primary svg {
-    width: 15px;
-    height: 15px;
-    color: currentColor;
-}
-
-.focus-primary[data-running="true"] {
-    background: var(--card);
-    color: var(--foreground);
-    border: 1px solid var(--line-strong);
-    box-shadow: none;
-}
-
-.focus-primary[data-running="true"]:hover {
-    border-color: var(--muted);
-}
-
+.focus-primary,
 .focus-ghost {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: var(--card);
-    color: var(--foreground);
-    font-size: 13px;
+    justify-content: center;
+    gap: 8px;
+    min-height: 52px;
+    border-radius: 12px;
+    font-size: 15.5px;
     font-weight: 600;
-    transition: transform .12s ease, border-color .15s ease;
+    transition: transform .12s ease, background .15s ease, color .15s ease;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
 }
 
-.focus-ghost:hover {
-    border-color: var(--line-strong);
+.focus-primary {
+    flex: 1;
+    border: 0;
+    background: var(--category);
+    color: var(--background);
 }
 
-.focus-ghost:active {
-    transform: scale(.97);
+.focus-primary[data-running="true"] {
+    background: var(--foreground);
+    color: var(--background);
 }
 
+.focus-ghost {
+    flex: 0 0 auto;
+    padding: 0 18px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14.5px;
+}
+
+.focus-ghost:hover { color: var(--foreground); }
+
+.focus-primary:active,
+.focus-ghost:active { transform: scale(.98); }
+
+.focus-primary:focus-visible,
 .focus-ghost:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
 
-.focus-ghost svg {
-    width: 14px;
-    height: 14px;
-    color: var(--muted);
+.focus-primary svg { width: 17px; height: 17px; }
+
+/* Solo start button when there's no reset */
+.focus-actions[data-solo="true"] .focus-primary { flex: 1 1 100%; }
+
+/* ───────────── Short screens: shrink the ring, hide the note ───────────── */
+
+@media (max-height: 620px) {
+    .focus-note { display: none; }
+    .focus-total { display: none; }
+    .focus-ring { height: min(60vw, 220px, calc(100dvh - 240px)); }
 }
 
 /* ───────────── Reduced motion ───────────── */
@@ -309,12 +324,10 @@
 @media (prefers-reduced-motion: reduce) {
     .focus-primary,
     .focus-ghost,
-    .focus-state-dot,
-    .focus-progress span {
+    .focus-ring-bar,
+    .focus-close {
         transition: none !important;
     }
     .focus-primary:active,
-    .focus-ghost:active {
-        transform: none;
-    }
+    .focus-ghost:active { transform: none; }
 }
