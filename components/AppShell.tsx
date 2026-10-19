@@ -127,10 +127,29 @@ export function AppShell() {
         return () => clearTimeout(id)
     }, [toast])
 
-    // Register service worker (production only)
+    // Register service worker (production only).
+    // We never let the HTTP cache serve sw.js and we reload once when a newly
+    // deployed worker takes control, so open tabs move to the latest version.
     useEffect(() => {
-        if (mounted && process.env.NODE_ENV === 'production') {
-            navigator.serviceWorker?.register('/sw.js').catch(() => { })
+        if (!mounted || process.env.NODE_ENV !== 'production') return
+        if (!('serviceWorker' in navigator)) return
+
+        const hadController = Boolean(navigator.serviceWorker.controller)
+        let reloading = false
+        const onControllerChange = () => {
+            if (!hadController || reloading) return
+            reloading = true
+            window.location.reload()
+        }
+        navigator.serviceWorker.addEventListener('controllerchange', onControllerChange)
+
+        navigator.serviceWorker
+            .register('/sw.js', { updateViaCache: 'none' })
+            .then((registration) => registration.update().catch(() => { }))
+            .catch(() => { })
+
+        return () => {
+            navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange)
         }
     }, [mounted])
 

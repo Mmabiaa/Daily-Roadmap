@@ -1660,7 +1660,7 @@
 
 .signin-page {
     /* Same photo as the Today hero. Swap the URL (or self-host it) here */
-    --signin-image: url('https://i.pinimg.com/1200x/17/e7/0b/17e70b2b31d0bc30e9fae0b0aeb8a715.jpg');
+    --signin-image: url('https://i.pinimg.com/736x/8e/72/0d/8e720d30a7ef1ed7e23e4905417cdacf.jpg');
 
     min-height: 100vh;
     min-height: 100dvh;
