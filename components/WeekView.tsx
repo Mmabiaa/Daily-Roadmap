@@ -20,12 +20,13 @@ type Props = {
     minimum: boolean
     setMinimum: (v: boolean) => void
     onToggle: (i: number) => void
+    onEdit: (block: Block) => void
 }
 
 export function WeekView({
     date, activeDay, blocks, shown, checks,
     selectedDay, setSelectedDay, classHours, studyHours, essentialDone,
-    minimum, setMinimum, onToggle,
+    minimum, setMinimum, onToggle, onEdit,
 }: Props) {
     return (
         <main className="content">
@@ -86,8 +87,9 @@ export function WeekView({
                             block={block}
                             index={i}
                             next={blocks[i + 1]}
-                            done={!!checks[keyFor(date, activeDay, i)]}
+                            done={!!checks[keyFor(date, activeDay, block.time)]}
                             onToggle={() => onToggle(i)}
+                            onEdit={block.id ? () => onEdit(block) : undefined}
                             isNow={false}
                         />
                     )

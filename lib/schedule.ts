@@ -1,5 +1,5 @@
 export type Category = 'class' | 'study' | 'project' | 'body' | 'eat' | 'people' | 'rest' | 'chores' | 'sleep'
-export type Block = { time: string; title: string; category: Category; note?: string; essential?: boolean }
+export type Block = { time: string; title: string; category: Category; note?: string; essential?: boolean; id?: string }
 export const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as const
 export type Day = typeof days[number]
 

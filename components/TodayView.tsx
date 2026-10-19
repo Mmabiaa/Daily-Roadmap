@@ -22,6 +22,7 @@ type Props = {
     minimum: boolean
     setMinimum: (v: boolean) => void
     onToggle: (i: number) => void
+    onEdit: (block: Block) => void
     /** false during SSR + first client render — hides time-sensitive text */
     mounted?: boolean
 }
@@ -39,10 +40,10 @@ function formatDate(date: string) {
 
 export function TodayView({
     date, activeDay, blocks, shown, checks, completion, streak,
-    currentIndex, nextBlock, minsToNext, minimum, setMinimum, onToggle,
+    currentIndex, nextBlock, minsToNext, minimum, setMinimum, onToggle, onEdit,
     mounted = true,
 }: Props) {
-    const doneCount = blocks.filter((_, i) => checks[keyFor(date, activeDay, i)]).length
+    const doneCount = blocks.filter((b) => checks[keyFor(date, activeDay, b.time)]).length
     const remaining = blocks.length - doneCount
     const allDone = blocks.length > 0 && remaining === 0
     const current = currentIndex >= 0 ? blocks[currentIndex] : undefined
@@ -143,8 +144,9 @@ export function TodayView({
                                 block={block}
                                 index={i}
                                 next={blocks[i + 1]}
-                                done={!!checks[keyFor(date, activeDay, i)]}
+                                done={!!checks[keyFor(date, activeDay, block.time)]}
                                 onToggle={() => onToggle(i)}
+                                onEdit={block.id ? () => onEdit(block) : undefined}
                                 isNow={i === currentIndex}
                                 dim={minimum && !block.essential}
                             />

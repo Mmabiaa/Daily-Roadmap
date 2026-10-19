@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
+import type { Day } from '@/lib/schedule'
+import { haptic } from '@/lib/utils'
 import type { Event } from '@/lib/models'
 
 interface EventFormModalProps {
@@ -9,35 +11,53 @@ interface EventFormModalProps {
   onClose: () => void
   onSave: () => void
   event?: Event | null
+  defaultDay?: Day
 }
 
-const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const categories = ['class', 'study', 'project', 'body', 'eat', 'people', 'rest', 'chores', 'sleep']
+const days: Day[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const categories = ['class', 'study', 'project', 'body', 'eat', 'people', 'rest', 'chores', 'sleep'] as const
 
-export default function EventFormModal({ isOpen, onClose, onSave, event }: EventFormModalProps) {
-  const [formData, setFormData] = useState({
-    day: event?.day || 'Mon',
-    time: event?.time || '',
-    title: event?.title || '',
-    category: event?.category || 'study',
-    note: event?.note || '',
-    essential: event?.essential || false,
-  })
+type FormData = {
+  day: Day
+  time: string
+  title: string
+  category: (typeof categories)[number]
+  note: string
+  essential: boolean
+}
+
+const emptyForm = (day: Day): FormData => ({
+  day,
+  time: '',
+  title: '',
+  category: 'study',
+  note: '',
+  essential: false,
+})
+
+export default function EventFormModal({ isOpen, onClose, onSave, event, defaultDay = 'Mon' }: EventFormModalProps) {
+  const [formData, setFormData] = useState<FormData>(emptyForm(defaultDay))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Reset the form each time it opens so a previous edit never leaks into a new event.
   useEffect(() => {
-    if (event) {
-      setFormData({
-        day: event.day,
-        time: event.time,
-        title: event.title,
-        category: event.category,
-        note: event.note || '',
-        essential: event.essential || false,
-      })
-    }
-  }, [event])
+    if (!isOpen) return
+    setError('')
+    setLoading(false)
+    setFormData(
+      event
+        ? {
+            day: event.day,
+            time: event.time,
+            title: event.title,
+            category: event.category,
+            note: event.note || '',
+            essential: event.essential || false,
+          }
+        : emptyForm(defaultDay)
+    )
+  }, [isOpen, event, defaultDay])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -93,76 +113,79 @@ export default function EventFormModal({ isOpen, onClose, onSave, event }: Event
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold">
-            {event ? 'Edit Event' : 'Add Event'}
-          </h2>
+    <div className="event-backdrop" role="presentation" onClick={onClose}>
+      <div
+        className="event-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={event ? 'Edit event' : 'Add event'}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="event-modal-head">
+          <h2>{event ? 'Edit event' : 'New event'}</h2>
           <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            type="button"
+            className="event-close"
             aria-label="Close"
+            onClick={() => {
+              haptic(5)
+              onClose()
+            }}
           >
-            <X size={24} />
+            <X aria-hidden="true" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Day
-            </label>
-            <select
-              value={formData.day}
-              onChange={(e) => setFormData({ ...formData, day: e.target.value as any })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            >
-              {days.map((day) => (
-                <option key={day} value={day}>
-                  {day}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Time
-            </label>
+        <form className="event-form" onSubmit={handleSubmit}>
+          <div className="event-field">
+            <label htmlFor="event-title">Title</label>
             <input
-              type="text"
-              value={formData.time}
-              onChange={(e) => setFormData({ ...formData, time: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="08:30"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Title
-            </label>
-            <input
+              id="event-title"
               type="text"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Study session"
               required
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Category
-            </label>
+          <div className="event-row">
+            <div className="event-field">
+              <label htmlFor="event-day">Day</label>
+              <select
+                id="event-day"
+                value={formData.day}
+                onChange={(e) => setFormData({ ...formData, day: e.target.value as Day })}
+                required
+              >
+                {days.map((day) => (
+                  <option key={day} value={day}>
+                    {day}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="event-field">
+              <label htmlFor="event-time">Start time</label>
+              <input
+                id="event-time"
+                type="text"
+                value={formData.time}
+                onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+                placeholder="08:30"
+                inputMode="numeric"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="event-field">
+            <label htmlFor="event-category">Category</label>
             <select
+              id="event-category"
               value={formData.category}
-              onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onChange={(e) => setFormData({ ...formData, category: e.target.value as FormData['category'] })}
               required
             >
               {categories.map((cat) => (
@@ -173,63 +196,38 @@ export default function EventFormModal({ isOpen, onClose, onSave, event }: Event
             </select>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Note (optional)
-            </label>
+          <div className="event-field">
+            <label htmlFor="event-note">Note (optional)</label>
             <textarea
+              id="event-note"
               value={formData.note}
               onChange={(e) => setFormData({ ...formData, note: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               rows={3}
               placeholder="Additional details..."
             />
           </div>
 
-          <div className="flex items-center">
+          <label className="event-check" htmlFor="event-essential">
             <input
+              id="event-essential"
               type="checkbox"
-              id="essential"
               checked={formData.essential}
               onChange={(e) => setFormData({ ...formData, essential: e.target.checked })}
-              className="mr-2"
             />
-            <label htmlFor="essential" className="text-sm font-medium text-gray-700">
-              Mark as essential
-            </label>
-          </div>
+            Mark as essential
+          </label>
 
-          {error && (
-            <div className="text-red-600 text-sm">
-              {error}
-            </div>
-          )}
+          {error && <p className="event-error">{error}</p>}
 
-          <div className="flex gap-2 pt-4">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium disabled:opacity-50"
-            >
-              {loading ? 'Saving...' : 'Save'}
+          <div className="event-actions">
+            <button type="submit" className="event-save" disabled={loading}>
+              {loading ? 'Saving...' : event ? 'Save changes' : 'Add event'}
             </button>
             {event && (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={loading}
-                className="py-2 px-4 bg-red-600 hover:bg-red-700 text-white rounded-md font-medium disabled:opacity-50"
-              >
+              <button type="button" className="event-delete" onClick={handleDelete} disabled={loading}>
                 Delete
               </button>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="py-2 px-4 bg-gray-300 hover:bg-gray-400 text-gray-800 rounded-md font-medium"
-            >
-              Cancel
-            </button>
           </div>
         </form>
       </div>

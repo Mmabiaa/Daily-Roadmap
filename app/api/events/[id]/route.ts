@@ -6,9 +6,11 @@ import { ObjectId } from 'mongodb'
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  ctx: RouteContext<'/api/events/[id]'>
 ) {
   try {
+    const { id } = await ctx.params
+
     const session = await getSession()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -19,7 +21,7 @@ export async function PATCH(
     
     const db = await getDb()
     const result = await db.collection('events').updateOne(
-      { _id: new ObjectId(params.id) },
+      { _id: new ObjectId(id) },
       {
         $set: {
           day: validated.day,
@@ -37,7 +39,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
     
-    return NextResponse.json({ _id: params.id, ...validated })
+    return NextResponse.json({ _id: id, ...validated })
   } catch (error) {
     console.error('Update event error:', error)
     return NextResponse.json(
@@ -49,9 +51,11 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  ctx: RouteContext<'/api/events/[id]'>
 ) {
   try {
+    const { id } = await ctx.params
+
     const session = await getSession()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -59,7 +63,7 @@ export async function DELETE(
     
     const db = await getDb()
     const result = await db.collection('events').deleteOne({
-      _id: new ObjectId(params.id),
+      _id: new ObjectId(id),
     })
     
     if (result.deletedCount === 0) {

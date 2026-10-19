@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import type { KeyboardEvent } from 'react'
 import { Check } from 'lucide-react'
 import type { Block } from '@/lib/schedule'
 import { duration, formatTime } from '@/lib/utils'
@@ -11,6 +12,7 @@ type Props = {
     next?: Block
     done: boolean
     onToggle: () => void
+    onEdit?: () => void
     isNow: boolean
     dim?: boolean
 }
@@ -18,7 +20,7 @@ type Props = {
 /** "side-project" -> "side project" (capitalised in CSS) */
 const categoryLabel = (category: string) => category.replace(/-/g, ' ')
 
-export function BlockRow({ block, next, done, onToggle, isNow, dim }: Props) {
+export function BlockRow({ block, next, done, onToggle, onEdit, isNow, dim }: Props) {
     const rowRef = useRef<HTMLDivElement>(null)
 
     // Scroll to the current block only when it *becomes* current —
@@ -55,7 +57,23 @@ export function BlockRow({ block, next, done, onToggle, isNow, dim }: Props) {
                 </button>
             </div>
 
-            <div className={`block-card category-${block.category} ${done ? 'is-done' : ''}`}>
+            <div
+                className={`block-card category-${block.category} ${done ? 'is-done' : ''}`}
+                {...(onEdit
+                    ? {
+                        role: 'button',
+                        tabIndex: 0,
+                        'aria-label': `Edit ${block.title}`,
+                        onClick: onEdit,
+                        onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                onEdit()
+                            }
+                        },
+                    }
+                    : {})}
+            >
                 <div className="block-card-top">
                     <p className="block-title">{block.title}</p>
                     {isNow && <span className="now-pill">Now</span>}
