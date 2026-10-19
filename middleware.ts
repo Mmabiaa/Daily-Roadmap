@@ -13,12 +13,13 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth-token')?.value
   const { pathname } = request.nextUrl
 
-  // Always allow API auth routes and static assets
+  // Always allow API auth routes, the OpenAPI spec and static assets
   if (
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/seed') ||
     pathname.startsWith('/api/test-db') ||
-    pathname.startsWith('/api/debug-cookies')
+    pathname.startsWith('/api/debug-cookies') ||
+    pathname.startsWith('/api/openapi')
   ) {
     return NextResponse.next()
   }

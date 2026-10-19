@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Block, Day, days, schedule } from '@/lib/schedule'
 import type { Event } from '@/lib/models'
 import { dateForDay, keyFor, minutes, todayInfo, duration, haptic } from '@/lib/utils'
@@ -18,6 +18,22 @@ import FloatingActionButton from './FloatingActionButton'
 import EventFormModal from './EventFormModal'
 
 type View = 'today' | 'week' | 'review' | 'guide'
+
+type StoredProgress = {
+    checks: Record<string, boolean>
+    reviews: Record<string, string[]>
+    energy: Record<string, 'low' | 'okay' | 'high'>
+    theme: 'light' | 'dark' | null
+}
+
+/** Entries that differ between the last saved snapshot and the current state. */
+const changed = <T,>(prev: Record<string, T>, next: Record<string, T>): Record<string, T> => {
+    const out: Record<string, T> = {}
+    for (const [key, value] of Object.entries(next)) {
+        if (JSON.stringify(prev[key]) !== JSON.stringify(value)) out[key] = value
+    }
+    return out
+}
 
 export function AppShell() {
     const [view, setView] = useState<View>('today')
@@ -37,6 +53,11 @@ export function AppShell() {
     const [events, setEvents] = useState<Event[] | null>(null)
     const [formOpen, setFormOpen] = useState(false)
     const [editTarget, setEditTarget] = useState<Event | null>(null)
+
+    // Progress lives in the database. `loaded` gates persistence until the
+    // initial fetch resolves; `saved` is the last snapshot written to the API.
+    const loaded = useRef(false)
+    const saved = useRef<StoredProgress>({ checks: {}, reviews: {}, energy: {}, theme: null })
 
     // Load events from the database. Until they arrive (or if the request
     // fails) the bundled schedule is used, so the view is never empty.
@@ -74,44 +95,81 @@ export function AppShell() {
         return map
     }, [events])
 
-    // Hydrate from localStorage + start clock AFTER mount (avoids SSR mismatch)
+    // Hydrate progress from the database + start the clock AFTER mount
+    // (avoids SSR mismatch). Nothing is read from or written to localStorage.
     useEffect(() => {
         setMounted(true)
         setNow(new Date())
-        try {
-            setChecks(JSON.parse(localStorage.getItem('fyr-checks') || '{}'))
-            setReviews(JSON.parse(localStorage.getItem('fyr-reviews') || '{}'))
-            setEnergy(JSON.parse(localStorage.getItem('fyr-energy') || '{}'))
-            const savedTheme = localStorage.getItem('fyr-theme') as 'light' | 'dark' | null
-            setTheme(
-                savedTheme ||
-                (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-            )
-        } catch { }
+
+        let cancelled = false
+        ;(async () => {
+            try {
+                const res = await fetch('/api/progress', { cache: 'no-store' })
+                if (!res.ok) return
+                const data = await res.json()
+                if (cancelled) return
+                const next: StoredProgress = {
+                    checks: data.checks ?? {},
+                    reviews: data.reviews ?? {},
+                    energy: data.energy ?? {},
+                    theme: data.theme ?? null,
+                }
+                setChecks(next.checks)
+                setReviews(next.reviews)
+                setEnergy(next.energy)
+                setTheme(
+                    next.theme ||
+                    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                )
+                saved.current = next
+            } catch {
+                /* offline — keep the empty state and retry on the next edit */
+            } finally {
+                if (!cancelled) loaded.current = true
+            }
+        })()
 
         const id = setInterval(() => setNow(new Date()), 30000)
-        return () => clearInterval(id)
+        return () => {
+            cancelled = true
+            clearInterval(id)
+        }
     }, [])
 
     // Apply theme
     useEffect(() => {
         if (!mounted) return
         document.documentElement.classList.toggle('dark', theme === 'dark')
-        localStorage.setItem('fyr-theme', theme)
     }, [theme, mounted])
 
-    // Persist
+    // Persist progress to the database (debounced). Only the entries that
+    // actually changed since the last save are sent.
     useEffect(() => {
-        if (mounted) localStorage.setItem('fyr-checks', JSON.stringify(checks))
-    }, [checks, mounted])
+        if (!loaded.current) return
+        const id = setTimeout(() => {
+            const prev = saved.current
+            const body: Record<string, unknown> = {}
 
-    useEffect(() => {
-        if (mounted) localStorage.setItem('fyr-reviews', JSON.stringify(reviews))
-    }, [reviews, mounted])
+            const checksDelta = changed(prev.checks, checks)
+            if (Object.keys(checksDelta).length) body.checks = checksDelta
+            const reviewsDelta = changed(prev.reviews, reviews)
+            if (Object.keys(reviewsDelta).length) body.reviews = reviewsDelta
+            const energyDelta = changed(prev.energy, energy)
+            if (Object.keys(energyDelta).length) body.energy = energyDelta
+            if (prev.theme !== theme) body.theme = theme
 
-    useEffect(() => {
-        if (mounted) localStorage.setItem('fyr-energy', JSON.stringify(energy))
-    }, [energy, mounted])
+            if (Object.keys(body).length === 0) return
+            saved.current = { checks, reviews, energy, theme }
+            fetch('/api/progress', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            }).catch(() => {
+                /* keep local state; the next change retries the save */
+            })
+        }, 600)
+        return () => clearTimeout(id)
+    }, [checks, reviews, energy, theme])
 
     // Focus timer tick
     useEffect(() => {
@@ -358,7 +416,7 @@ export function AppShell() {
                     <Review
                         reviews={reviews}
                         setReviews={setReviews}
-                        onSaved={() => setToast({ message: 'Saved privately', tone: 'success' })}
+                        onSaved={() => setToast({ message: 'Saved to your account', tone: 'success' })}
                     />
                 )}
                 {view === 'guide' && <Guide />}
