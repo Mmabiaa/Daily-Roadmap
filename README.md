@@ -4,6 +4,9 @@ A focused daily-schedule web app for students: a single place to plan the day,
 tick off blocks as you complete them, and review the week. It is a mobile-first
 PWA backed by MongoDB, with a simple username + PIN sign-in.
 
+Anyone can create an account in a minute and keep their own plan: every event
+and every tick is private to the account that created it.
+
 ![Screenshot](/public/screenshot.png)
 
 
@@ -14,8 +17,17 @@ PWA backed by MongoDB, with a simple username + PIN sign-in.
 - **Focus mode** — a distraction-free timer for a single block.
 - **App-like UX** — installable PWA, dark mode, hidden scrollbars, offline shell.
 
+## Accounts
+
+- **Sign up** — username, email and a 4–8 digit PIN. You are signed in straight
+  away and start with an empty schedule to fill in yourself.
+- **Sign in** — username + PIN.
+- **Forgot PIN** — a 6-digit code is emailed (SMTP), then you choose a new PIN.
+  Codes expire after 10 minutes, are single-use, and allow five attempts.
+- **Sign out** — from the top bar.
+
 Everything you tick off (task completion, reviews, energy, theme) is stored in
-MongoDB per user.
+MongoDB per user, and events never cross between accounts.
 
 ## Tech stack
 
@@ -26,6 +38,7 @@ MongoDB per user.
 | UI        | React 19, Tailwind CSS v4, lucide-react    |
 | Database  | MongoDB (native driver)                    |
 | Auth      | JWT in an httpOnly cookie, bcrypt PIN hash |
+| Email     | nodemailer (SMTP, Gmail by default)        |
 | Validation| Zod                                        |
 | Docs      | OpenAPI 3 + Swagger UI                     |
 
@@ -56,10 +69,25 @@ cp .env.example .env.local
 | `JWT_SECRET`     | yes      | Secret used to sign auth tokens. Use a long random value.|
 | `ADMIN_USERNAME` | no       | Username for the first user created by `/api/seed`.     |
 | `ADMIN_PIN`      | no       | PIN for that first user.                                |
+| `ADMIN_EMAIL`    | no       | Email for that first user, so it can reset its PIN.     |
+| `SMTP_HOST`      | for resets | SMTP server, e.g. `smtp.gmail.com`.                  |
+| `SMTP_PORT`      | no       | `465` (TLS, default) or `587` (STARTTLS).               |
+| `SMTP_USER`      | for resets | SMTP username.                                        |
+| `SMTP_PASS`      | for resets | SMTP password / Gmail App Password.                   |
+| `SMTP_FROM`      | no       | From header. Defaults to `SMTP_USER`.                   |
+
+Without the `SMTP_*` variables the app still runs; `/api/auth/forgot-pin`
+returns `503` so the failure is explicit rather than silent.
 
 ### 3. Seed the database
 
-The `users` and `events` collections are populated by an idempotent seed step.
+The seed step is idempotent. It creates the first account, and:
+
+- attaches any events that predate per-user ownership to that account, so
+  nothing is lost when reads become user-scoped;
+- gives that account the starter schedule **once** — every other account starts
+  empty.
+
 Run it once after configuring the environment:
 
 ```bash
@@ -78,7 +106,8 @@ npm run build    # production build
 npm start        # serve the production build
 ```
 
-Open <http://localhost:3000> and sign in with `ADMIN_USERNAME` / `ADMIN_PIN`.
+Open <http://localhost:3000> and sign in with `ADMIN_USERNAME` / `ADMIN_PIN`,
+or create a new account from `/signup`.
 
 ## API documentation
 
@@ -89,33 +118,44 @@ Interactive Swagger UI covering every endpoint is available while signed in:
 
 Source of truth: [`lib/openapi.ts`](./lib/openapi.ts).
 
-| Method | Endpoint             | Purpose                              |
-| ------ | -------------------- | ------------------------------------ |
-| POST   | `/api/auth/signin`   | Sign in with username + PIN          |
-| GET    | `/api/auth/check`    | Check the current session            |
-| POST   | `/api/auth/signout`  | Sign out                             |
-| GET    | `/api/events`        | List schedule events                 |
-| POST   | `/api/events`        | Create an event                      |
-| PATCH  | `/api/events/{id}`   | Update an event                      |
-| DELETE | `/api/events/{id}`   | Delete an event                      |
-| GET    | `/api/progress`      | Get the user's saved progress        |
-| PATCH  | `/api/progress`      | Merge progress updates               |
-| GET    | `/api/seed`          | Seed the database                    |
-| POST   | `/api/seed`          | Seed the database                    |
-| GET    | `/api/test-db`       | Database connectivity and counts     |
-| GET    | `/api/debug-cookies` | Inspect the request cookies          |
-| GET    | `/api/openapi`       | This OpenAPI specification           |
+| Method | Endpoint                | Purpose                                    |
+| ------ | ----------------------- | ------------------------------------------ |
+| POST   | `/api/auth/signup`      | Create an account and sign in              |
+| POST   | `/api/auth/signin`      | Sign in with username + PIN                |
+| POST   | `/api/auth/forgot-pin`  | Email a 6-digit PIN reset code             |
+| POST   | `/api/auth/reset-pin`   | Set a new PIN with the emailed code        |
+| GET    | `/api/auth/check`       | Check the current session                  |
+| POST   | `/api/auth/signout`     | Sign out                                   |
+| GET    | `/api/events`           | List the signed-in user's events           |
+| POST   | `/api/events`           | Create an event for the signed-in user     |
+| PATCH  | `/api/events/{id}`      | Update one of the user's own events        |
+| DELETE | `/api/events/{id}`      | Delete one of the user's own events        |
+| GET    | `/api/progress`         | Get the user's saved progress              |
+| PATCH  | `/api/progress`         | Merge progress updates                     |
+| GET    | `/api/seed`             | Seed the database                          |
+| POST   | `/api/seed`             | Seed the database                          |
+| GET    | `/api/test-db`          | Database connectivity and counts           |
+| GET    | `/api/debug-cookies`    | Inspect the request cookies                |
+| GET    | `/api/openapi`          | This OpenAPI specification                 |
 
 Requests are authenticated with the httpOnly `auth-token` cookie, so "Try it
-out" from `/api-docs` works with your signed-in session.
+out" from `/api-docs` works with your signed-in session. Unauthenticated calls
+to a protected `/api/*` route get a JSON `401`, never an HTML redirect.
 
 ## Data model
 
-| Collection | Contents                                                        |
-| ---------- | --------------------------------------------------------------- |
-| `users`    | Account records: `username`, bcrypt `pinHash`, `createdAt`.     |
-| `events`   | Schedule blocks: `day`, `time`, `title`, `category`, `note`.    |
-| `progress` | Per-user `checks`, `reviews`, `energy` and `theme`.             |
+| Collection   | Contents                                                                      |
+| ------------ | ----------------------------------------------------------------------------- |
+| `users`      | Accounts: `username`, `email`, bcrypt `pinHash`, `createdAt`.                 |
+| `events`     | Schedule blocks owned by a user: `userId`, `day`, `time`, `title`, `category`, `note`, `essential`. |
+| `progress`   | Per-user `checks`, `reviews`, `energy` and `theme`.                           |
+| `pin_resets` | Pending PIN reset codes: `userId`, bcrypt `codeHash`, `expiresAt`, `attempts`. |
+
+Indexes are created automatically on first use (`ensureIndexes` in
+[`lib/mongodb.ts`](./lib/mongodb.ts)). The unique indexes on `users.username`
+and `users.email` are what make duplicate sign-ups impossible even under
+concurrent requests, and the TTL index on `pin_resets.expiresAt` lets MongoDB
+delete expired codes on its own.
 
 ## Project structure
 
@@ -124,21 +164,24 @@ app/
   api/            Route handlers (auth, events, progress, admin, openapi)
   api-docs/       Swagger UI page
   signin/         Sign-in page
+  signup/         Sign-up page
+  forgot-pin/     PIN reset page (request code -> set new PIN)
   styles/         Design tokens and stylesheets (01..08)
 components/       UI components (AppShell, views, modals)
-lib/              Models, auth, MongoDB client, seed, OpenAPI spec
+lib/              Models, auth, mailer, MongoDB client, seed, OpenAPI spec
 middleware.ts     Route protection (pages + API)
 public/           Icons, manifest and service worker
 ```
 
 ## Deployment (Vercel)
 
-1. Add `MONGODB_URI`, `JWT_SECRET`, `ADMIN_USERNAME` and `ADMIN_PIN` as project
-   environment variables.
+1. Add `MONGODB_URI`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PIN`, `ADMIN_EMAIL`
+   and the `SMTP_*` variables as project environment variables.
 2. Deploy. New or changed environment variables only apply after a fresh
    deployment, so redeploy when you change them.
-3. Visit `/api/seed` once to create the first user and events.
-4. Sign in and confirm progress is saving.
+3. Visit `/api/seed` once to create the first account and attach the starter
+   plan to it.
+4. Sign in, then check `/signup` and `/forgot-pin` work end to end.
 
 ## Contributing
 

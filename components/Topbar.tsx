@@ -1,7 +1,7 @@
 'use client'
 
 import Image from 'next/image'
-import { Lock, Moon, Sun, Unlock } from 'lucide-react'
+import { Lock, LogOut, Moon, Sun, Unlock } from 'lucide-react'
 import { haptic } from '@/lib/utils'
 
 type View = 'today' | 'week' | 'review' | 'guide'
@@ -20,6 +20,7 @@ type Props = {
     lockIn: boolean
     onToggleLockIn: () => void
     onToggleTheme: () => void
+    onSignOut: () => void
 }
 
 export function Topbar({
@@ -29,6 +30,7 @@ export function Topbar({
     lockIn,
     onToggleLockIn,
     onToggleTheme,
+    onSignOut,
 }: Props) {
     return (
         <header className="topbar">
@@ -67,6 +69,16 @@ export function Topbar({
                     onClick={onToggleTheme}
                 >
                     {theme === 'light' ? <Moon aria-hidden="true" /> : <Sun aria-hidden="true" />}
+                </button>
+                <button
+                    className="icon-button"
+                    aria-label="Sign out"
+                    onClick={() => {
+                        haptic(6)
+                        onSignOut()
+                    }}
+                >
+                    <LogOut aria-hidden="true" />
                 </button>
             </div>
         </header>

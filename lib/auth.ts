@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
+import { randomInt } from 'node:crypto'
 import { cookies } from 'next/headers'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-in-production'
@@ -11,6 +12,21 @@ export async function hashPin(pin: string): Promise<string> {
 export async function verifyPin(pin: string, hash: string): Promise<boolean> {
   return bcrypt.compare(pin, hash)
 }
+
+/** A 6-digit one-time code drawn from a CSPRNG (never Math.random). */
+export function generateOtp(digits = 6): string {
+  return String(randomInt(0, 10 ** digits)).padStart(digits, '0')
+}
+
+/** Emails are matched case-insensitively, so always store this form. */
+export function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+/** PIN-reset policy, shared by the request and verify endpoints. */
+export const OTP_TTL_MINUTES = 10
+export const OTP_MAX_ATTEMPTS = 5
+export const OTP_RESEND_COOLDOWN_SECONDS = 60
 
 export function generateToken(userId: string): string {
   return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' })

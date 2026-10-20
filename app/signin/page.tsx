@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Eye, EyeOff } from 'lucide-react'
 
 export default function SignInPage() {
@@ -113,6 +114,15 @@ export default function SignInPage() {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        <p className="signin-links">
+          <span>
+            No account yet? <Link href="/signup">Create one</Link>
+          </span>
+          <span>
+            <Link href="/forgot-pin">Forgot your PIN?</Link>
+          </span>
+        </p>
       </section>
     </main>
   )

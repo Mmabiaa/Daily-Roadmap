@@ -9,11 +9,14 @@ function redirectTo(path: string, request: NextRequest) {
   return response
 }
 
+// Pages that must be reachable without a session.
+const PUBLIC_PAGES = ['/signin', '/signup', '/forgot-pin']
+
 export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth-token')?.value
   const { pathname } = request.nextUrl
 
-  // Always allow API auth routes, the OpenAPI spec and static assets
+  // Always allow the auth, docs and diagnostic API routes
   if (
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/seed') ||
@@ -24,19 +27,27 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Redirect authenticated users away from /signin
-  if (pathname.startsWith('/signin') && token) {
+  // Every other API route is JSON: answer 401 rather than redirecting an API
+  // client to an HTML sign-in page.
+  if (pathname.startsWith('/api/')) {
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    return NextResponse.next()
+  }
+
+  const isPublicPage = PUBLIC_PAGES.some(
+    (page) => pathname === page || pathname.startsWith(`${page}/`)
+  )
+
+  // Redirect authenticated users away from the auth pages
+  if (isPublicPage && token) {
     return redirectTo('/', request)
   }
 
   // Redirect unauthenticated users to /signin for protected pages
-  if (!pathname.startsWith('/signin') && !token) {
+  if (!isPublicPage && !token) {
     return redirectTo('/signin', request)
-  }
-
-  // Protect API routes (except auth routes above)
-  if (pathname.startsWith('/api/') && !token) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   return NextResponse.next()

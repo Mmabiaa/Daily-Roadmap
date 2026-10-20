@@ -78,23 +78,32 @@ export function WeekView({
                 </button>
             </section>
 
-            <div className="timeline" key={selectedDay}>
-                {shown.map((block) => {
-                    const i = blocks.indexOf(block)
-                    return (
-                        <BlockRow
-                            key={block.time}
-                            block={block}
-                            index={i}
-                            next={blocks[i + 1]}
-                            done={!!checks[keyFor(date, activeDay, block.time)]}
-                            onToggle={() => onToggle(i)}
-                            onEdit={block.id ? () => onEdit(block) : undefined}
-                            isNow={false}
-                        />
-                    )
-                })}
-            </div>
+            {shown.length === 0 ? (
+                <div className="empty-state">
+                    <p>No blocks to show.</p>
+                    <p className="empty-hint">
+                        Nothing is scheduled for {selectedDay} yet. Tap the + button to add one.
+                    </p>
+                </div>
+            ) : (
+                <div className="timeline" key={selectedDay}>
+                    {shown.map((block) => {
+                        const i = blocks.indexOf(block)
+                        return (
+                            <BlockRow
+                                key={block.time}
+                                block={block}
+                                index={i}
+                                next={blocks[i + 1]}
+                                done={!!checks[keyFor(date, activeDay, block.time)]}
+                                onToggle={() => onToggle(i)}
+                                onEdit={block.id ? () => onEdit(block) : undefined}
+                                isNow={false}
+                            />
+                        )
+                    })}
+                </div>
+            )}
         </main>
     )
 }

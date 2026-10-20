@@ -50,14 +50,15 @@ export const openApiDocument = {
     description:
       'API for the Daily Roadmap schedule app. Authentication is a signed JWT stored in the ' +
       'httpOnly `auth-token` cookie, so use "Try it out" from a signed-in browser session ' +
-      'to have requests authenticated automatically.',
+      'to have requests authenticated automatically. Events and progress are scoped to the ' +
+      'signed-in account and are never shared between users.',
   },
   servers: [
     { url: '/', description: 'Current origin' },
   ],
   tags: [
-    { name: 'Auth', description: 'Sign in, session check and sign out' },
-    { name: 'Events', description: 'Schedule blocks stored in MongoDB' },
+    { name: 'Auth', description: 'Sign up, sign in, PIN reset, session check and sign out' },
+    { name: 'Events', description: 'The signed-in user’s own schedule blocks' },
     { name: 'Progress', description: 'Per-user completion, reviews, energy and theme' },
     { name: 'Admin', description: 'Seeding and diagnostics' },
     { name: 'Docs', description: 'This specification' },
@@ -78,6 +79,69 @@ export const openApiDocument = {
           },
           400: errorResponse,
           401: { description: 'Invalid credentials', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/auth/signup': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Create an account and sign in',
+        description:
+          'Creates the account and sets the `auth-token` cookie. Usernames and emails are unique ' +
+          '(enforced by database indexes), so a racing duplicate sign-up returns 409. New accounts ' +
+          'start with an empty schedule.',
+        security: [],
+        requestBody: jsonBody({ $ref: '#/components/schemas/SignUpRequest' }),
+        responses: {
+          201: {
+            description: 'Account created and signed in',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SignUpResponse' } } },
+          },
+          400: errorResponse,
+          409: { description: 'Username or email already registered', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/auth/forgot-pin': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Email a 6-digit PIN reset code',
+        description:
+          'Sends a 6-digit code to the account’s email via SMTP. The reply is identical whether or ' +
+          'not the account exists, so the endpoint cannot be used to discover who has an account. ' +
+          'Codes expire after 10 minutes and are not re-sent within 60 seconds of the previous request.',
+        security: [],
+        requestBody: jsonBody({ $ref: '#/components/schemas/ForgotPinRequest' }),
+        responses: {
+          200: {
+            description: 'Reset code requested (generic reply)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ForgotPinResponse' } } },
+          },
+          400: errorResponse,
+          502: { description: 'The email could not be sent', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          503: { description: 'Email is not configured on the server', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/auth/reset-pin': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Set a new PIN using the emailed code',
+        description:
+          'Verifies the code (5 attempts maximum, single use) and replaces the PIN hash, then signs ' +
+          'the user in. A wrong code and an unknown account return the same 400.',
+        security: [],
+        requestBody: jsonBody({ $ref: '#/components/schemas/ResetPinRequest' }),
+        responses: {
+          200: {
+            description: 'PIN updated; auth cookie set',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } },
+          },
+          400: errorResponse,
+          429: { description: 'Too many incorrect attempts', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -112,10 +176,11 @@ export const openApiDocument = {
     '/api/events': {
       get: {
         tags: ['Events'],
-        summary: 'List all schedule events',
+        summary: "List the signed-in user's events",
+        description: 'Only events owned by the session user are returned.',
         responses: {
           200: {
-            description: 'All events',
+            description: 'The user’s events',
             content: {
               'application/json': {
                 schema: { type: 'array', items: { $ref: '#/components/schemas/Event' } },
@@ -128,13 +193,15 @@ export const openApiDocument = {
       },
       post: {
         tags: ['Events'],
-        summary: 'Create an event',
+        summary: 'Create an event for the signed-in user',
+        description: 'The new event is owned by the session user.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
         responses: {
           201: {
             description: 'Created event',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Event' } } },
           },
+          400: errorResponse,
           401: unauthorizedResponse,
           500: errorResponse,
         },
@@ -152,13 +219,15 @@ export const openApiDocument = {
       ],
       patch: {
         tags: ['Events'],
-        summary: 'Update an event',
+        summary: 'Update one of the signed-in user’s events',
+        description: 'Events owned by another account are not matched and return 404.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
         responses: {
           200: {
             description: 'Updated event',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Event' } } },
           },
+          400: errorResponse,
           401: unauthorizedResponse,
           404: errorResponse,
           500: errorResponse,
@@ -166,7 +235,8 @@ export const openApiDocument = {
       },
       delete: {
         tags: ['Events'],
-        summary: 'Delete an event',
+        summary: 'Delete one of the signed-in user’s events',
+        description: 'Events owned by another account are not matched and return 404.',
         responses: {
           200: {
             description: 'Deleted',
@@ -306,6 +376,48 @@ export const openApiDocument = {
         },
         required: ['username', 'pin'],
       },
+      SignUpRequest: {
+        type: 'object',
+        properties: {
+          username: { type: 'string', example: 'mmabiaa', description: '3–32 letters, numbers, dot, dash or underscore.' },
+          email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Used to send PIN reset codes.' },
+          pin: { type: 'string', example: '1234', description: '4–8 digits.' },
+        },
+        required: ['username', 'email', 'pin'],
+      },
+      SignUpResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          username: { type: 'string', example: 'mmabiaa' },
+        },
+        required: ['success', 'username'],
+      },
+      ForgotPinRequest: {
+        type: 'object',
+        properties: {
+          identifier: { type: 'string', example: 'mmabiaa', description: 'Username or email of the account.' },
+        },
+        required: ['identifier'],
+      },
+      ForgotPinResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string' },
+          expiresInMinutes: { type: 'integer', example: 10 },
+        },
+        required: ['success'],
+      },
+      ResetPinRequest: {
+        type: 'object',
+        properties: {
+          identifier: { type: 'string', example: 'mmabiaa', description: 'The same username or email used to request the code.' },
+          otp: { type: 'string', example: '482915', description: 'The 6-digit code from the email.' },
+          pin: { type: 'string', example: '5678', description: 'The new 4–8 digit PIN.' },
+        },
+        required: ['identifier', 'otp', 'pin'],
+      },
       AuthCheckResponse: {
         type: 'object',
         properties: {
@@ -333,6 +445,7 @@ export const openApiDocument = {
             type: 'object',
             properties: {
               _id: { type: 'string', example: '652f1c9f8a1b2c3d4e5f6a7b' },
+              userId: { type: 'string', description: 'Owner of the event (set by the server, never by the client).' },
               createdAt: { type: 'string', format: 'date-time' },
               updatedAt: { type: 'string', format: 'date-time' },
             },

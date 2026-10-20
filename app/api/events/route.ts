@@ -3,16 +3,20 @@ import { getDb } from '@/lib/mongodb'
 import { getSession } from '@/lib/auth'
 import { EventSchema } from '@/lib/models'
 
+/**
+ * Events are private to their owner: every read and write is filtered by the
+ * `userId` on the session, so one account can never see or touch another's plan.
+ */
 export async function GET() {
   try {
     const session = await getSession()
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
+
     const db = await getDb()
-    const events = await db.collection('events').find({}).toArray()
-    
+    const events = await db.collection('events').find({ userId: session.userId }).toArray()
+
     return NextResponse.json(events.map(e => ({ ...e, _id: e._id.toString() })))
   } catch (error) {
     console.error('Fetch events error:', error)
@@ -29,12 +33,19 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    
-    const body = await request.json()
-    const validated = EventSchema.parse(body)
-    
+
+    const parsed = EventSchema.safeParse(await request.json())
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? 'Invalid event' },
+        { status: 400 }
+      )
+    }
+    const validated = parsed.data
+
     const db = await getDb()
     const result = await db.collection('events').insertOne({
+      userId: session.userId,
       day: validated.day,
       time: validated.time,
       title: validated.title,
@@ -43,7 +54,7 @@ export async function POST(request: Request) {
       essential: validated.essential,
       createdAt: new Date(),
     })
-    
+
     return NextResponse.json({
       _id: result.insertedId.toString(),
       ...validated

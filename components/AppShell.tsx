@@ -299,6 +299,15 @@ export function AppShell() {
         setTimerRunning(next)
     }
 
+    const handleSignOut = async () => {
+        try {
+            await fetch('/api/auth/signout', { method: 'POST' })
+        } catch {
+            /* the cookie is cleared server-side; fall through to the redirect */
+        }
+        window.location.replace('/signin')
+    }
+
     const openNewEvent = () => {
         haptic(6)
         setEditTarget(null)
@@ -350,6 +359,7 @@ export function AppShell() {
                     haptic(5)
                     setTheme(theme === 'light' ? 'dark' : 'light')
                 }}
+                onSignOut={handleSignOut}
             />
 
             {lockIn && (

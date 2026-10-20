@@ -1857,6 +1857,69 @@
     }
 }
 
+/* Secondary actions and cross-links on the auth pages (sign up / reset PIN) */
+
+.signin-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 46px;
+    border: 1px solid var(--line-strong);
+    border-radius: 13px;
+    background: transparent;
+    color: var(--foreground);
+    font-size: 14.5px;
+    font-weight: 650;
+    transition: background .15s ease, transform .12s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.signin-secondary:active:not(:disabled) {
+    transform: scale(.98);
+}
+
+.signin-secondary:disabled {
+    opacity: .6;
+    cursor: progress;
+}
+
+.signin-secondary:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.signin-links {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 20px 0 0;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13.5px;
+}
+
+.signin-links a {
+    color: var(--primary);
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.signin-links a:hover {
+    text-decoration: underline;
+}
+
+/* Confirmation shown after a reset code is sent. */
+.signin-notice {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--line));
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--primary) 10%, var(--card));
+    color: var(--foreground);
+    font-size: 13.5px;
+    line-height: 1.4;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .signin-spinner {
         animation: none;
