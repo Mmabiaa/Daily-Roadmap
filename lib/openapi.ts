@@ -42,6 +42,21 @@ const jsonBody = (schema: Record<string, unknown>, required = true) => ({
   content: { 'application/json': { schema } },
 })
 
+const seedDescription =
+  'Creates the first account and gives it the starter schedule, once. Idempotent, and never ' +
+  'overwrites an existing PIN. Requires the `SEED_SECRET` value in the `x-seed-key` header; ' +
+  'without a configured secret the endpoint is disabled in production. A wrong or missing key ' +
+  'returns 404. `ADMIN_PIN` (6–8 digits) must be set, so the account is never created with a ' +
+  'default PIN.'
+
+const seedKeyHeader = {
+  name: 'x-seed-key',
+  in: 'header',
+  required: true,
+  description: 'The value of the server’s `SEED_SECRET` environment variable.',
+  schema: { type: 'string' },
+}
+
 export const openApiDocument = {
   openapi: '3.0.3',
   info: {
@@ -60,7 +75,7 @@ export const openApiDocument = {
     { name: 'Auth', description: 'Sign up, sign in, PIN reset, session check and sign out' },
     { name: 'Events', description: 'The signed-in user’s own schedule blocks' },
     { name: 'Progress', description: 'Per-user completion, reviews, energy and theme' },
-    { name: 'Admin', description: 'Seeding and diagnostics' },
+    { name: 'Admin', description: 'Seeding (guarded by a server secret)' },
     { name: 'Docs', description: 'This specification' },
   ],
   security: [{ cookieAuth: [] }],
@@ -284,53 +299,30 @@ export const openApiDocument = {
       get: {
         tags: ['Admin'],
         summary: 'Seed the database (idempotent)',
-        description: 'Creates the admin user and the default schedule if they do not already exist.',
+        description: seedDescription,
         security: [],
+        parameters: [seedKeyHeader],
         responses: {
           200: {
             description: 'Seed result',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/SeedResponse' } } },
           },
+          404: { description: 'Seeding is disabled or the key is wrong', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
       post: {
         tags: ['Admin'],
         summary: 'Seed the database (idempotent)',
+        description: seedDescription,
         security: [],
+        parameters: [seedKeyHeader],
         responses: {
           200: {
             description: 'Seed result',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/SeedResponse' } } },
           },
-          500: errorResponse,
-        },
-      },
-    },
-    '/api/test-db': {
-      get: {
-        tags: ['Admin'],
-        summary: 'Database connectivity and counts',
-        security: [],
-        responses: {
-          200: {
-            description: 'Diagnostics',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/DbTestResponse' } } },
-          },
-          500: errorResponse,
-        },
-      },
-    },
-    '/api/debug-cookies': {
-      get: {
-        tags: ['Admin'],
-        summary: 'Inspect the request cookies',
-        security: [],
-        responses: {
-          200: {
-            description: 'Cookie debug info',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/DebugCookiesResponse' } } },
-          },
+          404: { description: 'Seeding is disabled or the key is wrong', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -495,39 +487,6 @@ export const openApiDocument = {
           success: { type: 'boolean' },
           message: { type: 'string' },
           error: { type: 'string' },
-        },
-      },
-      DbTestResponse: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean' },
-          connected: { type: 'boolean' },
-          usersCount: { type: 'integer' },
-          eventsCount: { type: 'integer' },
-          users: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                username: { type: 'string' },
-                id: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-      DebugCookiesResponse: {
-        type: 'object',
-        properties: {
-          cookies: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: { name: { type: 'string' }, value: { type: 'string' } },
-            },
-          },
-          count: { type: 'integer' },
-          hasAuthToken: { type: 'boolean' },
         },
       },
     },

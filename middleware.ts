@@ -16,12 +16,11 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('auth-token')?.value
   const { pathname } = request.nextUrl
 
-  // Always allow the auth, docs and diagnostic API routes
+  // Always allow the auth routes, seeding (guarded by SEED_SECRET) and the
+  // OpenAPI spec that the Swagger UI needs before it can render.
   if (
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/seed') ||
-    pathname.startsWith('/api/test-db') ||
-    pathname.startsWith('/api/debug-cookies') ||
     pathname.startsWith('/api/openapi')
   ) {
     return NextResponse.next()

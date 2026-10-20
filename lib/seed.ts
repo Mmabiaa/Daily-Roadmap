@@ -1,14 +1,21 @@
 import { getDb, ensureIndexes } from './mongodb'
 import { hashPin, normalizeEmail } from './auth'
 import { schedule, days, Day } from './schedule'
+import { NEW_PIN_PATTERN, NEW_PIN_RULE } from './pin'
 
 export async function seedDatabase() {
   const db = await getDb()
   await ensureIndexes()
 
   const username = process.env.ADMIN_USERNAME || 'admin'
-  const pin = process.env.ADMIN_PIN || '1234'
+  const pin = process.env.ADMIN_PIN
   const email = process.env.ADMIN_EMAIL ? normalizeEmail(process.env.ADMIN_EMAIL) : undefined
+
+  // Refuse to run without a real PIN. A seeded account must never fall back to a
+  // well-known default, because that account is reachable from the sign-in page.
+  if (!pin || !NEW_PIN_PATTERN.test(pin)) {
+    throw new Error(`Set ADMIN_PIN before seeding. ${NEW_PIN_RULE}.`)
+  }
 
   // 1. The first account. Created once and never overwritten, so re-running the
   //    seed never resets an existing PIN.

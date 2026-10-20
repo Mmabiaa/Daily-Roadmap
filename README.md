@@ -68,8 +68,9 @@ cp .env.example .env.local
 | `MONGODB_URI`    | yes      | MongoDB connection string.                              |
 | `JWT_SECRET`     | yes      | Secret used to sign auth tokens. Use a long random value.|
 | `ADMIN_USERNAME` | no       | Username for the first user created by `/api/seed`.     |
-| `ADMIN_PIN`      | no       | PIN for that first user.                                |
+| `ADMIN_PIN`      | to seed  | **6–8 digit** PIN for that first user. The seed refuses to run without it, so the account is never created with a default PIN. |
 | `ADMIN_EMAIL`    | no       | Email for that first user, so it can reset its PIN.     |
+| `SEED_SECRET`    | to seed in production | Guards `/api/seed`. Sent by the caller in the `x-seed-key` header. Without it, seeding is disabled in production. |
 | `SMTP_HOST`      | for resets | SMTP server, e.g. `smtp.gmail.com`.                  |
 | `SMTP_PORT`      | no       | `465` (TLS, default) or `587` (STARTTLS).               |
 | `SMTP_USER`      | for resets | SMTP username.                                        |
@@ -88,14 +89,16 @@ The seed step is idempotent. It creates the first account, and:
 - gives that account the starter schedule **once** — every other account starts
   empty.
 
-Run it once after configuring the environment:
+It requires `ADMIN_PIN` (6–8 digits) and, in production, the `SEED_SECRET` value
+in an `x-seed-key` header. Send the key in the header rather than the query
+string, which would end up in access logs:
 
 ```bash
 # with the dev server running
-curl http://localhost:3000/api/seed
+curl -H "x-seed-key: $SEED_SECRET" http://localhost:3000/api/seed
 
-# or, in a browser
-http://localhost:3000/api/seed
+# in development only, ?key= is also accepted (never do this in production)
+curl "http://localhost:3000/api/seed?key=$SEED_SECRET"
 ```
 
 ### 4. Run
@@ -132,10 +135,8 @@ Source of truth: [`lib/openapi.ts`](./lib/openapi.ts).
 | DELETE | `/api/events/{id}`      | Delete one of the user's own events        |
 | GET    | `/api/progress`         | Get the user's saved progress              |
 | PATCH  | `/api/progress`         | Merge progress updates                     |
-| GET    | `/api/seed`             | Seed the database                          |
-| POST   | `/api/seed`             | Seed the database                          |
-| GET    | `/api/test-db`          | Database connectivity and counts           |
-| GET    | `/api/debug-cookies`    | Inspect the request cookies                |
+| GET    | `/api/seed`             | Seed the database (requires `x-seed-key`)  |
+| POST   | `/api/seed`             | Seed the database (requires `x-seed-key`)  |
 | GET    | `/api/openapi`          | This OpenAPI specification                 |
 
 Requests are authenticated with the httpOnly `auth-token` cookie, so "Try it
@@ -175,12 +176,13 @@ public/           Icons, manifest and service worker
 
 ## Deployment (Vercel)
 
-1. Add `MONGODB_URI`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PIN`, `ADMIN_EMAIL`
-   and the `SMTP_*` variables as project environment variables.
+1. Add `MONGODB_URI`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PIN` (6–8 digits),
+   `ADMIN_EMAIL`, `SEED_SECRET` and the `SMTP_*` variables as project environment
+   variables.
 2. Deploy. New or changed environment variables only apply after a fresh
    deployment, so redeploy when you change them.
-3. Visit `/api/seed` once to create the first account and attach the starter
-   plan to it.
+3. Seed once with the secret in the header:
+   `curl -H "x-seed-key: $SEED_SECRET" https://<your-app>/api/seed`
 4. Sign in, then check `/signup` and `/forgot-pin` work end to end.
 
 ## Contributing
