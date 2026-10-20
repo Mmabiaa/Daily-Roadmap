@@ -12,7 +12,7 @@ function redirectTo(path: string, request: NextRequest) {
 // Pages that must be reachable without a session.
 const PUBLIC_PAGES = ['/signin', '/signup', '/forgot-pin']
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const token = request.cookies.get('auth-token')?.value
   const { pathname } = request.nextUrl
 

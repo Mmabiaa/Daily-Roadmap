@@ -170,7 +170,7 @@ app/
   styles/         Design tokens and stylesheets (01..08)
 components/       UI components (AppShell, views, modals)
 lib/              Models, auth, mailer, MongoDB client, seed, OpenAPI spec
-middleware.ts     Route protection (pages + API)
+proxy.ts          Route protection (pages + API)
 public/           Icons, manifest and service worker
 ```
 

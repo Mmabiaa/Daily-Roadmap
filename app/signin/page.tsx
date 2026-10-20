@@ -12,7 +12,7 @@ export default function SignInPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // No useEffect needed — middleware already redirects authenticated users away from /signin
+  // No useEffect needed — proxy.ts already redirects authenticated users away from /signin
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
