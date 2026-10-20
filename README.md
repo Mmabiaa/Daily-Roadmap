@@ -73,6 +73,8 @@ cp .env.example .env.local
 | `ADMIN_PIN`      | to seed  | **6–8 digit** PIN for that first user. The seed refuses to run without it, so the account is never created with a default PIN. |
 | `ADMIN_EMAIL`    | no       | Email for that first user, so it can reset its PIN.     |
 | `SEED_SECRET`    | to seed in production | Guards `/api/seed`. Sent by the caller in the `x-seed-key` header. Without it, seeding is disabled in production. |
+| `TRUST_PROXY_HEADERS` | on a proxied host | Set to `true` only when a proxy you control sets the IP header. Without it, per-IP sign-in throttling is skipped rather than trusting a spoofable value. |
+| `TRUSTED_IP_HEADER` | no    | Which header carries the client IP. Defaults to `x-forwarded-for` (first entry). |
 | `SMTP_HOST`      | for resets | SMTP server, e.g. `smtp.gmail.com`.                  |
 | `SMTP_PORT`      | no       | `465` (TLS, default) or `587` (STARTTLS).               |
 | `SMTP_USER`      | for resets | SMTP username.                                        |
@@ -153,12 +155,28 @@ to a protected `/api/*` route get a JSON `401`, never an HTML redirect.
 | `events`     | Schedule blocks owned by a user: `userId`, `day`, `time`, `title`, `category`, `note`, `essential`. |
 | `progress`   | Per-user `checks`, `reviews`, `energy` and `theme`.                           |
 | `pin_resets` | Pending PIN reset codes: `userId`, bcrypt `codeHash`, `expiresAt`, `attempts`. |
+| `rate_limits` | Sign-in throttle buckets, one per account and per hashed IP: `failures`, `windowStartedAt`, `lockedUntil`, `expiresAt`. |
 
 Indexes are created automatically on first use (`ensureIndexes` in
 [`lib/mongodb.ts`](./lib/mongodb.ts)). The unique indexes on `users.username`
 and `users.email` are what make duplicate sign-ups impossible even under
-concurrent requests, and the TTL index on `pin_resets.expiresAt` lets MongoDB
-delete expired codes on its own.
+concurrent requests, and the TTL indexes on `pin_resets.expiresAt` and
+`rate_limits.expiresAt` let MongoDB clean up expired rows on its own.
+
+## Sign-in throttling
+
+Five failures inside fifteen minutes start a lock, and each further failure
+extends it: 1m, 5m, 15m, 1h, then doubling. An **account** is never locked for
+more than an hour, so wrong guesses cannot keep a real user out for a day; an
+**IP** is capped at 24 hours. Locked callers get `429` with a `Retry-After`
+header. A correct PIN clears the account's failures, and a completed PIN reset
+clears them too, so a reset is never blocked by the sign-in lock. Unknown
+usernames pay for a bcrypt compare as well, so the reply time does not reveal
+whether an account exists.
+
+Per-IP limiting needs `TRUST_PROXY_HEADERS=true`, because the header is
+otherwise client-controlled. When it is off, or the header is missing or not a
+literal IP, the IP limit is skipped and only the account limit applies.
 
 ## Project structure
 
@@ -179,8 +197,8 @@ public/           Icons, manifest and service worker
 ## Deployment (Vercel)
 
 1. Add `MONGODB_URI`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PIN` (6–8 digits),
-   `ADMIN_EMAIL`, `SEED_SECRET` and the `SMTP_*` variables as project environment
-   variables.
+   `ADMIN_EMAIL`, `SEED_SECRET`, `TRUST_PROXY_HEADERS=true` and the `SMTP_*`
+   variables as project environment variables.
 2. Deploy. New or changed environment variables only apply after a fresh
    deployment, so redeploy when you change them.
 3. Seed once with the secret in the header:

@@ -13,6 +13,20 @@ export async function verifyPin(pin: string, hash: string): Promise<boolean> {
   return bcrypt.compare(pin, hash)
 }
 
+let dummyHash: Promise<string> | null = null
+
+/**
+ * A real bcrypt hash of a value no PIN can be, computed once per process.
+ *
+ * Sign-in compares against it when the username is unknown, so that path costs
+ * the same as a wrong PIN and response timing cannot be used to work out which
+ * usernames are registered.
+ */
+export function dummyPinHash(): Promise<string> {
+  if (!dummyHash) dummyHash = bcrypt.hash('no-such-pin', 10)
+  return dummyHash
+}
+
 /** A 6-digit one-time code drawn from a CSPRNG (never Math.random). */
 export function generateOtp(digits = 6): string {
   return String(randomInt(0, 10 ** digits)).padStart(digits, '0')

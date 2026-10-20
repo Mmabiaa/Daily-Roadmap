@@ -56,6 +56,8 @@ export function ensureIndexes(): Promise<void> {
         db.collection('progress').createIndex({ userId: 1 }, { unique: true }),
         db.collection('pin_resets').createIndex({ userId: 1 }, { unique: true }),
         db.collection('pin_resets').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
+        // Sign-in throttling buckets. TTL so a quiet deployment cleans itself up.
+        db.collection('rate_limits').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
       ])
     })().catch((error) => {
       // Let the next request retry rather than caching a failed setup forever.

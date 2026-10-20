@@ -84,7 +84,11 @@ export const openApiDocument = {
       post: {
         tags: ['Auth'],
         summary: 'Sign in with username and PIN',
-        description: 'Verifies the PIN against the stored bcrypt hash and sets the `auth-token` cookie.',
+        description:
+          'Verifies the PIN against the stored bcrypt hash and sets the `auth-token` cookie. ' +
+          'A wrong PIN and an unknown username return the same 401. Repeated failures lock the ' +
+          'account (up to 1 hour) and the client IP (up to 24 hours); a locked caller gets 429 with ' +
+          'a `Retry-After` header. A correct PIN clears the account\'s failures.',
         security: [],
         requestBody: jsonBody({ $ref: '#/components/schemas/SignInRequest' }),
         responses: {
@@ -94,6 +98,7 @@ export const openApiDocument = {
           },
           400: errorResponse,
           401: { description: 'Invalid credentials', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          429: { description: 'Too many failed attempts; see the Retry-After header', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },

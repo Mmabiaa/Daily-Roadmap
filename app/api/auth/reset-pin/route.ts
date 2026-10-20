@@ -9,6 +9,8 @@ import {
   verifyPin,
 } from '@/lib/auth'
 import { ResetPinSchema } from '@/lib/models'
+import { accountKey } from '@/lib/rate-limit-policy'
+import { clearFailures } from '@/lib/rate-limit'
 
 const COLLECTION = 'pin_resets'
 
@@ -57,6 +59,11 @@ export async function POST(request: Request) {
 
     // The code is single-use: clearing it also resets the attempt counter.
     await db.collection(COLLECTION).deleteOne({ userId })
+
+    // Proving the emailed code is stronger than a PIN attempt, and this route is
+    // never blocked by the sign-in lock, so clear any lock the account collected.
+    // Otherwise a reset PIN would still be unusable until the lock expired.
+    await clearFailures(accountKey(user.username))
 
     await setSession(generateToken(userId))
 
