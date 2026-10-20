@@ -248,7 +248,7 @@ export const openApiDocument = {
         description:
           'The new event is owned by the session user. `start` and `end` must differ. Two `fixed` ' +
           'events may not overlap: a clash returns 409 naming the conflicting event. `flexible` ' +
-          'events may overlap anything. An account may keep at most 400 events, after which a ' +
+          'events may overlap anything. An account may keep at most 300 events, after which a ' +
           'create returns 400.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
         responses: {

@@ -41,7 +41,7 @@ const EVENTS = 'events'
 const COMPLETIONS = 'completions'
 
 /** How many events one account may keep. */
-export const MAX_EVENTS = 400
+export const MAX_EVENTS = 300
 
 /** How far back the streak will look for a run, so a bad date cannot hang it. */
 const STREAK_LOOKBACK_DAYS = 400

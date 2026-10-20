@@ -182,6 +182,15 @@ concurrent requests, the unique index on a completion stops one block being
 ticked twice, and the TTL indexes on `pin_resets.expiresAt` and
 `rate_limits.expiresAt` let MongoDB clean up expired rows on its own.
 
+## Schedule rules
+
+- **Events per account** — at most **300**. The 301st create is refused with a
+  `400` and a message saying so.
+- **Overlaps** — only two `fixed` events can clash, and only when their weekday
+  sets, their date ranges and their times all intersect. A clash returns `409`
+  naming the event it clashes with. `flexible` events may sit on top of
+  anything, so a study block can be moved onto a class without a fight.
+
 ## Sign-in throttling
 
 Five failed attempts inside fifteen minutes start a lock on the **account**, and
