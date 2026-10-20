@@ -113,9 +113,21 @@ curl "http://localhost:3000/api/seed?key=$SEED_SECRET"
 npm run dev      # development
 npm run build    # production build
 npm start        # serve the production build
-npm test         # unit tests (node:test, no extra dependencies)
+npm test         # unit + database integration tests (node:test)
 npm run typecheck # tsc --noEmit; the build runs type checking too
 ```
+
+`npm test` also runs the database-backed suite in
+[`lib/integration.test.ts`](./lib/integration.test.ts), which starts a real
+`mongod` through [`mongodb-memory-server`](https://github.com/typegoose/mongodb-memory-server)
+(a dev dependency) and points `MONGODB_URI` at it, so the indexes, the atomic
+counters and the ownership rules are exercised for real rather than mocked. The
+binary is downloaded on first run; if that is not possible, set
+`MONGOMS_SYSTEM_BINARY` to a `mongod` already on the machine, or
+`MONGOMS_VERSION` to pin a different build. The suite **fails loudly** if the
+database cannot be started — it is never silently skipped. Set
+`SKIP_INTEGRATION=1` only when you deliberately want to run the unit tests
+alone, which prints a warning so a skipped suite is obvious.
 
 Open <http://localhost:3000> and sign in with `ADMIN_USERNAME` / `ADMIN_PIN`,
 or create a new account from `/signup`.
@@ -137,10 +149,11 @@ Source of truth: [`lib/openapi.ts`](./lib/openapi.ts).
 | POST   | `/api/auth/reset-pin`   | Set a new PIN with the emailed code        |
 | GET    | `/api/auth/check`       | Check the current session                  |
 | POST   | `/api/auth/signout`     | Sign out                                   |
-| GET    | `/api/events`           | List the signed-in user's events           |
+| GET    | `/api/events`           | List the user's events, or `?date=`/`?week=` blocks |
 | POST   | `/api/events`           | Create an event for the signed-in user     |
 | PATCH  | `/api/events/{id}`      | Update one of the user's own events        |
-| DELETE | `/api/events/{id}`      | Delete one of the user's own events        |
+| DELETE | `/api/events/{id}`      | Delete, skip or truncate one of the user's events |
+| PATCH  | `/api/completions`      | Tick or untick a block on a date           |
 | GET    | `/api/progress`         | Get the user's saved progress              |
 | PATCH  | `/api/progress`         | Merge progress updates                     |
 | GET    | `/api/seed`             | Seed the database (requires `x-seed-key`)  |

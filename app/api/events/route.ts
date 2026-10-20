@@ -1,34 +1,38 @@
 import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/mongodb'
+
 import { route } from '@/lib/api'
-import { EventSchema } from '@/lib/models'
+import { EventInputSchema } from '@/lib/models'
+import { isDate } from '@/lib/schedule-time'
+import { createEvent, getDayView, getWeekView, listEvents } from '@/lib/schedule-service'
 
 /**
  * Events are private to their owner: every read and write is filtered by the
  * signed-in account, so one account can never see or touch another's plan.
+ *
+ * A plain GET returns the owner's stored events. `?date=` resolves a single day
+ * and `?week=` resolves the seven days from that week's Monday; both come back
+ * with each block's tick already applied and the owner's timezone and today, so
+ * the client never has to join events against completions or guess the date.
  */
-export const GET = route({ failure: 'Failed to fetch events' }, async ({ user }) => {
-  const db = await getDb()
-  const events = await db.collection('events').find({ userId: user.id }).toArray()
+export const GET = route({ failure: 'Failed to fetch events' }, async ({ request, user }) => {
+  const query = new URL(request.url).searchParams
+  const anchor = query.get('date') ?? query.get('week')
 
-  return NextResponse.json(events.map((e) => ({ ...e, _id: e._id.toString() })))
+  if (!anchor) return NextResponse.json(await listEvents(user.id))
+  if (!isDate(anchor)) {
+    return NextResponse.json({ error: 'Use a YYYY-MM-DD date' }, { status: 400 })
+  }
+
+  return NextResponse.json(
+    query.has('week') ? await getWeekView(user.id, anchor) : await getDayView(user.id, anchor)
+  )
 })
 
+/**
+ * Creates an event owned by the session user. Fixed events must not overlap:
+ * a clash with another fixed event is a 409 naming the event it conflicts with.
+ */
 export const POST = route(
-  { body: EventSchema, failure: 'Failed to create event' },
-  async ({ user, body }) => {
-    const db = await getDb()
-    const result = await db.collection('events').insertOne({
-      userId: user.id,
-      day: body.day,
-      time: body.time,
-      title: body.title,
-      category: body.category,
-      note: body.note,
-      essential: body.essential,
-      createdAt: new Date(),
-    })
-
-    return NextResponse.json({ _id: result.insertedId.toString(), ...body }, { status: 201 })
-  }
+  { body: EventInputSchema, invalidBody: 'Invalid event', failure: 'Failed to create event' },
+  async ({ user, body }) => NextResponse.json(await createEvent(user.id, body), { status: 201 })
 )

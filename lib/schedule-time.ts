@@ -43,6 +43,27 @@ export function weekdayOf(date: string): Day {
   return days[(jsDay + 6) % 7]
 }
 
+/** A `Date` back to a `YYYY-MM-DD` date, read in UTC. */
+export function isoDate(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+}
+
+/** `date` moved by `days` (negative goes back). Pure calendar arithmetic. */
+export function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  return isoDate(new Date(Date.UTC(year, month - 1, day + days)))
+}
+
+/** The day before `date` — the split point when a series is truncated. */
+export function dayBefore(date: string): string {
+  return addDays(date, -1)
+}
+
+/** The Monday of the week `date` falls in. */
+export function weekStartOf(date: string): string {
+  return addDays(date, -days.indexOf(weekdayOf(date)))
+}
+
 /** Minutes after local midnight. */
 export function minutesOf(time: string): number {
   const [hours, minutes] = time.split(':').map(Number)

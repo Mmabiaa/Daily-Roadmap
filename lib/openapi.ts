@@ -19,6 +19,8 @@ const categories = [
   'sleep',
 ]
 
+const kinds = ['fixed', 'flexible']
+
 const errorResponse = {
   description: 'Error',
   content: {
@@ -198,17 +200,44 @@ export const openApiDocument = {
     '/api/events': {
       get: {
         tags: ['Events'],
-        summary: "List the signed-in user's events",
-        description: 'Only events owned by the session user are returned.',
+        summary: "List the signed-in user's events, or one day/week of blocks",
+        description:
+          'Only events owned by the session user are ever returned. With no query the raw event ' +
+          'list is returned. With `?date=YYYY-MM-DD` the resolved day is returned, with each block ' +
+          'carrying its event id and its ticked state; with `?week=YYYY-MM-DD` the seven days from ' +
+          'that date’s Monday are returned. Dates are read in the account’s own timezone.',
+        parameters: [
+          {
+            name: 'date',
+            in: 'query',
+            required: false,
+            description: 'Return the resolved blocks for this day.',
+            schema: { type: 'string', example: '2026-10-19' },
+          },
+          {
+            name: 'week',
+            in: 'query',
+            required: false,
+            description: 'Return the resolved blocks for the seven days from this date’s Monday.',
+            schema: { type: 'string', example: '2026-10-19' },
+          },
+        ],
         responses: {
           200: {
-            description: 'The user’s events',
+            description: 'The user’s events, or a resolved day/week',
             content: {
               'application/json': {
-                schema: { type: 'array', items: { $ref: '#/components/schemas/Event' } },
+                schema: {
+                  oneOf: [
+                    { type: 'array', items: { $ref: '#/components/schemas/Event' } },
+                    { $ref: '#/components/schemas/DayView' },
+                    { $ref: '#/components/schemas/WeekView' },
+                  ],
+                },
               },
             },
           },
+          400: errorResponse,
           401: unauthorizedResponse,
           500: errorResponse,
         },
@@ -216,7 +245,11 @@ export const openApiDocument = {
       post: {
         tags: ['Events'],
         summary: 'Create an event for the signed-in user',
-        description: 'The new event is owned by the session user.',
+        description:
+          'The new event is owned by the session user. `start` and `end` must differ. Two `fixed` ' +
+          'events may not overlap: a clash returns 409 naming the conflicting event. `flexible` ' +
+          'events may overlap anything. An account may keep at most 400 events, after which a ' +
+          'create returns 400.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
         responses: {
           201: {
@@ -225,6 +258,7 @@ export const openApiDocument = {
           },
           400: errorResponse,
           401: unauthorizedResponse,
+          409: { description: 'A fixed event overlaps this one', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -242,8 +276,14 @@ export const openApiDocument = {
       patch: {
         tags: ['Events'],
         summary: 'Update one of the signed-in user’s events',
-        description: 'Events owned by another account are not matched and return 404.',
-        requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
+        description:
+          'Events owned by another account are not matched and return 404. `scope` decides how ' +
+          'much of a repeating event the edit covers: `this` writes an exception for `date` so ' +
+          'only that day changes; `future` splits the series at `date`, keeping earlier days ' +
+          '(and their ticks) as they were. Editing on or before the series’ first day replaces ' +
+          'the series. A `fixed` overlap returns 409 naming the conflicting event. New or edited ' +
+          'events must have `end !== start`.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/EventUpdate' }),
         responses: {
           200: {
             description: 'Updated event',
@@ -252,18 +292,61 @@ export const openApiDocument = {
           400: errorResponse,
           401: unauthorizedResponse,
           404: errorResponse,
+          409: { description: 'A fixed event overlaps this one', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
       delete: {
         tags: ['Events'],
         summary: 'Delete one of the signed-in user’s events',
-        description: 'Events owned by another account are not matched and return 404.',
+        description:
+          'Events owned by another account are not matched and return 404. `scope=this&date=…` ' +
+          'hides the event on that one day; `scope=future&date=…` ends the series the day before ' +
+          '`date`; with no scope the event and its completions are removed.',
+        parameters: [
+          {
+            name: 'scope',
+            in: 'query',
+            required: false,
+            description: '`this` skips one date; `future` truncates the series.',
+            schema: { type: 'string', enum: ['this', 'future'] },
+          },
+          {
+            name: 'date',
+            in: 'query',
+            required: false,
+            description: 'The date the scope applies to.',
+            schema: { type: 'string', example: '2026-10-19' },
+          },
+        ],
         responses: {
           200: {
-            description: 'Deleted',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } },
+            description: 'Deleted, skipped or truncated',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/DeleteResult' } } },
           },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          404: errorResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/completions': {
+      patch: {
+        tags: ['Events'],
+        summary: 'Tick or untick a block on a date',
+        description:
+          'Writes or removes a completion row for the event on that date. The event must belong ' +
+          'to the session user *and* actually occur on that date (as resolved), otherwise the ' +
+          'call fails. `done: false` deletes the row, so the call is idempotent. Rows are keyed by ' +
+          '`(ownerId, date, eventId)`, so moving an event’s time no longer orphans its tick.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/CompletionToggle' }),
+        responses: {
+          200: {
+            description: 'The resulting ticked state',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CompletionResult' } } },
+          },
+          400: errorResponse,
           401: unauthorizedResponse,
           404: errorResponse,
           500: errorResponse,
@@ -426,17 +509,75 @@ export const openApiDocument = {
         },
         required: ['authenticated'],
       },
-      EventInput: {
+      Repeat: {
+        oneOf: [
+          {
+            type: 'object',
+            description: 'Repeats on the given weekdays.',
+            properties: {
+              type: { type: 'string', enum: ['weekly'] },
+              days: { type: 'array', minItems: 1, items: { type: 'string', enum: days } },
+            },
+            required: ['type', 'days'],
+          },
+          {
+            type: 'object',
+            description: 'Occurs on exactly one calendar date.',
+            properties: {
+              type: { type: 'string', enum: ['once'] },
+              date: { type: 'string', example: '2026-10-19' },
+            },
+            required: ['type', 'date'],
+          },
+        ],
+      },
+      EventException: {
         type: 'object',
+        description:
+          'A change to a repeating event on one date. `skip` hides it that day; the other fields ' +
+          'replace what the event says, for that date only.',
         properties: {
-          day: { type: 'string', enum: days },
-          time: { type: 'string', example: '08:30' },
-          title: { type: 'string', example: 'Study: assignments' },
-          category: { type: 'string', enum: categories },
+          date: { type: 'string', example: '2026-10-19' },
+          skip: { type: 'boolean' },
+          start: { type: 'string', example: '09:30' },
+          end: { type: 'string', example: '10:45' },
+          title: { type: 'string' },
           note: { type: 'string' },
           essential: { type: 'boolean' },
         },
-        required: ['day', 'time', 'title', 'category'],
+        required: ['date'],
+      },
+      EventInput: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', example: 'Study: assignments' },
+          category: { type: 'string', enum: categories },
+          kind: { type: 'string', enum: kinds, description: '`fixed` for appointments at a set time, `flexible` for everything movable. Only fixed events conflict.' },
+          start: { type: 'string', example: '09:00' },
+          end: { type: 'string', example: '10:00', description: 'Must differ from `start`.' },
+          repeat: { $ref: '#/components/schemas/Repeat' },
+          startDate: { type: 'string', example: '2026-10-19', description: 'First day the event applies. Optional for weekly events.' },
+          endDate: { type: 'string', example: '2026-12-20', description: 'Last day the event applies. Optional.' },
+          note: { type: 'string' },
+          essential: { type: 'boolean' },
+          exceptions: { type: 'array', items: { $ref: '#/components/schemas/EventException' } },
+        },
+        required: ['title', 'category', 'kind', 'start', 'end', 'repeat'],
+      },
+      EventUpdate: {
+        description:
+          'The full set of editable fields, plus `scope` and the `date` they apply to. `scope` ' +
+          'defaults to `future`.',
+        allOf: [
+          { $ref: '#/components/schemas/EventInput' },
+          {
+            type: 'object',
+            properties: {
+              scope: { type: 'string', enum: ['this', 'future'], default: 'future' },
+              date: { type: 'string', example: '2026-10-19' },
+            },
+          },
+        ],
       },
       Event: {
         allOf: [
@@ -445,16 +586,91 @@ export const openApiDocument = {
             type: 'object',
             properties: {
               _id: { type: 'string', example: '652f1c9f8a1b2c3d4e5f6a7b' },
-              userId: { type: 'string', description: 'Owner of the event (set by the server, never by the client).' },
-              createdAt: { type: 'string', format: 'date-time' },
-              updatedAt: { type: 'string', format: 'date-time' },
+              source: { type: 'string', enum: ['user', 'seed', 'migration'] },
+              ownerId: { type: 'string', description: 'Owner of the event (set by the server, never by the client).' },
             },
+            required: ['_id', 'source'],
           },
         ],
       },
+      BlockView: {
+        type: 'object',
+        description: 'One resolved block for a date, with its ticked state.',
+        properties: {
+          eventId: { type: 'string', description: 'The event it came from — the key a completion is stored under.' },
+          title: { type: 'string' },
+          category: { type: 'string', enum: categories },
+          kind: { type: 'string', enum: kinds },
+          start: { type: 'string', example: '09:00' },
+          end: { type: 'string', example: '10:00' },
+          essential: { type: 'boolean' },
+          note: { type: 'string' },
+          source: { type: 'string', enum: ['user', 'seed', 'migration'] },
+          done: { type: 'boolean' },
+        },
+        required: ['eventId', 'title', 'category', 'kind', 'start', 'end', 'essential', 'source', 'done'],
+      },
+      DayView: {
+        type: 'object',
+        properties: {
+          timezone: { type: 'string', example: 'Europe/London', description: 'The account’s zone; the client must use this, not the browser clock, for plan logic.' },
+          today: { type: 'string', example: '2026-10-20', description: 'Today in the account’s zone.' },
+          date: { type: 'string', example: '2026-10-19' },
+          blocks: { type: 'array', items: { $ref: '#/components/schemas/BlockView' } },
+          streak: { type: 'integer', description: 'Consecutive days with every essential block done.' },
+        },
+        required: ['timezone', 'today', 'date', 'blocks', 'streak'],
+      },
+      WeekView: {
+        type: 'object',
+        properties: {
+          timezone: { type: 'string', example: 'Europe/London' },
+          today: { type: 'string', example: '2026-10-20' },
+          weekStart: { type: 'string', example: '2026-10-19', description: 'Monday of the returned week.' },
+          days: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                date: { type: 'string', example: '2026-10-19' },
+                blocks: { type: 'array', items: { $ref: '#/components/schemas/BlockView' } },
+              },
+              required: ['date', 'blocks'],
+            },
+          },
+          streak: { type: 'integer' },
+        },
+        required: ['timezone', 'today', 'weekStart', 'days', 'streak'],
+      },
+      CompletionToggle: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', example: '2026-10-19', description: 'The day the block occurs, in the account’s zone.' },
+          eventId: { type: 'string', example: '652f1c9f8a1b2c3d4e5f6a7b' },
+          done: { type: 'boolean', description: '`true` ticks the block; `false` clears it.' },
+        },
+        required: ['date', 'eventId', 'done'],
+      },
+      CompletionResult: {
+        type: 'object',
+        properties: { done: { type: 'boolean' } },
+        required: ['done'],
+      },
+      DeleteResult: {
+        type: 'object',
+        properties: {
+          deleted: { type: 'boolean', description: 'The event and its completions were removed.' },
+          skipped: { type: 'boolean', description: 'The event was hidden on one date.' },
+          truncated: { type: 'boolean', description: 'The series was ended the day before the given date.' },
+        },
+        required: ['deleted', 'skipped', 'truncated'],
+      },
       Checks: {
         type: 'object',
-        description: 'Block completion flags keyed by `fyr:<date>:<day>:<time>`.',
+        description:
+          'LEGACY. Block completion flags keyed by `fyr:<date>:<day>:<time>`, from before the ' +
+          '`completions` collection existed. Still accepted by `/api/progress` so nothing breaks, ' +
+          'but new ticks are written to `/api/completions`.',
         additionalProperties: { type: 'boolean' },
         example: { 'fyr:2026-10-19:Mon:08:30': true },
       },

@@ -1,5 +1,6 @@
-import { getDb } from './mongodb'
-import { FAILURE_WINDOW_MS, lockDurationMs, RateLimitScope } from './rate-limit-policy'
+import { getDb } from './mongodb.ts'
+import { FAILURE_WINDOW_MS, lockDurationMs } from './rate-limit-policy.ts'
+import type { RateLimitScope } from './rate-limit-policy.ts'
 
 /**
  * Sign-in throttling buckets, one document per account or IP.

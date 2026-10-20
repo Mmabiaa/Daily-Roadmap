@@ -1,63 +1,43 @@
 import { NextResponse } from 'next/server'
-import { ObjectId } from 'mongodb'
-import { getDb } from '@/lib/mongodb'
+
 import { route } from '@/lib/api'
-import { EventSchema } from '@/lib/models'
+import { EventUpdateSchema } from '@/lib/models'
+import { isDate } from '@/lib/schedule-time'
+import { deleteEvent, updateEvent } from '@/lib/schedule-service'
 
 /**
- * Owner-scoped updates: the filter always includes `userId`, so an event that
- * belongs to someone else simply does not match and returns 404.
+ * Owner-scoped writes: the filter always includes the owner id, so an event
+ * that belongs to another account simply does not match and returns 404.
+ *
+ * `scope` says how much of a repeating event an edit or delete covers:
+ * `this` changes only the given date (an exception), `future` splits the
+ * series there, keeping past days and their ticks as they were.
  */
-function ownerFilter(id: string, userId: string) {
-  if (!ObjectId.isValid(id)) return null
-  return { _id: new ObjectId(id), userId }
-}
-
 export const PATCH = route(
-  { body: EventSchema, failure: 'Failed to update event' },
-  async ({ user, params, body }) => {
-    const id = String(params.id)
-    const filter = ownerFilter(id, user.id)
-    if (!filter) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
-    }
-
-    const db = await getDb()
-    const result = await db.collection('events').updateOne(filter, {
-      $set: {
-        day: body.day,
-        time: body.time,
-        title: body.title,
-        category: body.category,
-        note: body.note,
-        essential: body.essential,
-        updatedAt: new Date(),
-      },
-    })
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({ _id: id, ...body })
-  }
+  { body: EventUpdateSchema, invalidBody: 'Invalid event', failure: 'Failed to update event' },
+  async ({ user, params, body }) =>
+    NextResponse.json(await updateEvent(user.id, String(params.id), body))
 )
 
 export const DELETE = route(
   { failure: 'Failed to delete event' },
-  async ({ user, params }) => {
-    const filter = ownerFilter(String(params.id), user.id)
-    if (!filter) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
+  async ({ request, user, params }) => {
+    const query = new URL(request.url).searchParams
+    const scope = query.get('scope')
+    const date = query.get('date')
+
+    if (scope && scope !== 'this' && scope !== 'future') {
+      return NextResponse.json({ error: 'scope must be this or future' }, { status: 400 })
+    }
+    if (date && !isDate(date)) {
+      return NextResponse.json({ error: 'Use a YYYY-MM-DD date' }, { status: 400 })
     }
 
-    const db = await getDb()
-    const result = await db.collection('events').deleteOne(filter)
-
-    if (result.deletedCount === 0) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
-    }
-
-    return NextResponse.json({ success: true })
+    return NextResponse.json(
+      await deleteEvent(user.id, String(params.id), {
+        ...(scope === 'this' || scope === 'future' ? { scope } : {}),
+        ...(date ? { date } : {}),
+      })
+    )
   }
 )

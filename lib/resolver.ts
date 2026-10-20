@@ -1,6 +1,5 @@
-import { getDb } from './mongodb.ts'
 import type { CategoryName, DayName, EventDoc, Kind, Source } from './models.ts'
-import { durationMinutes, isTime, legacyEnd, minutesOf, weekdayOf } from './schedule-time.ts'
+import { addDays, durationMinutes, isTime, legacyEnd, minutesOf, overlaps, weekdayOf } from './schedule-time.ts'
 
 /**
  * The schedule resolver.
@@ -165,17 +164,64 @@ export function resolveDay(events: EventDoc[], date: string): DayBlock[] {
   return rows.map((row) => row.block)
 }
 
+/** Whether an event is scheduled to happen on `date`, before exceptions. */
+export function appliesOn(event: EventDoc, date: string): boolean {
+  return occursOn(event, date, weekdayOf(date))
+}
+
+/** Whether an event has been skipped for `date` by an exception. */
+export function skippedOn(event: EventDoc, date: string): boolean {
+  return Boolean(event.exceptions?.some((entry) => entry.date === date && entry.skip))
+}
+
+/** The date window an event can occur in, as `[from, to]` ISO strings. */
+function dateWindow(event: EventDoc): { from: string; to: string } {
+  if (event.repeat.type === 'once') return { from: event.repeat.date, to: event.repeat.date }
+  return { from: event.startDate ?? '0000-01-01', to: event.endDate ?? '9999-12-31' }
+}
+
 /**
- * The resolved blocks for a date, straight from the database.
+ * Whether two events clash.
  *
- * The thin wrapper: it fetches every event the owner has and lets the pure
- * resolver decide what the date shows, so the recurrence rules never touch
- * Mongo and Mongo never has to understand a repeat rule.
+ * Only fixed events can: a flexible block is meant to be moved over anything,
+ * so it never conflicts. Two fixed events clash when they share a weekday, the
+ * windows they run in overlap, and their times overlap (an end at or before the
+ * start means it runs into the next morning, which `overlaps` already handles).
+ * A date either event has skipped does not count as a clash, so the walk looks
+ * at the first few shared dates rather than just the first.
  */
-export async function getDay(ownerId: string, date: string): Promise<DayBlock[]> {
-  const db = await getDb()
-  const docs = await db.collection('events').find({ ownerId }).toArray()
-  return resolveDay(normalizeEvents(docs), date)
+export function conflicts(a: EventDoc, b: EventDoc): boolean {
+  if (a.kind !== 'fixed' || b.kind !== 'fixed') return false
+  if (!overlaps(a.start, a.end, b.start, b.end)) return false
+
+  const wa = dateWindow(a)
+  const wb = dateWindow(b)
+  const from = wa.from > wb.from ? wa.from : wb.from
+  const to = wa.to < wb.to ? wa.to : wb.to
+  if (from > to) return false
+
+  // Any two weekday sets that intersect do so within a week, so eight days is
+  // enough to find a shared date (and to step past a skipped one).
+  for (let offset = 0; offset < 8; offset += 1) {
+    const date = addDays(from, offset)
+    if (date > to) return false
+    if (
+      appliesOn(a, date) &&
+      appliesOn(b, date) &&
+      !skippedOn(a, date) &&
+      !skippedOn(b, date)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/** A short, human label for an event, used when reporting a clash. */
+export function describeEvent(event: EventDoc): string {
+  const when =
+    event.repeat.type === 'once' ? event.repeat.date : event.repeat.days.join('/')
+  return `${event.title} (${when} ${event.start}–${event.end})`
 }
 
 /** Where a block sits now: the block in progress, the next one, and the count. */

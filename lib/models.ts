@@ -148,6 +148,18 @@ export const CompletionSchema = z.object({
 })
 export type Completion = z.infer<typeof CompletionSchema>
 
+/**
+ * Body of `PATCH /api/completions`: tick a block on a date, or clear it. The
+ * row is keyed by the event id, so moving the event's time later does not
+ * orphan the tick the way the old position-keyed key did.
+ */
+export const CompletionToggleSchema = z.object({
+  date: DateString,
+  eventId: z.string().min(1),
+  done: z.boolean(),
+})
+export type CompletionToggle = z.infer<typeof CompletionToggleSchema>
+
 /** Accounts are identified by a unique username and (once set) a unique email. */
 export const UserSchema = z.object({
   _id: z.string().optional(),
