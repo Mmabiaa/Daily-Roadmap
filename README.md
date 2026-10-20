@@ -207,6 +207,14 @@ ticked twice, and the TTL indexes on `pin_resets.expiresAt` and
   the days behind it still count. The walk never reaches back before the
   account's first event.
 
+**Known limitation.** The event cap and the overlap check are *read-then-write*:
+the handler counts, or scans for a clash, and then writes. Two requests from the
+same account that arrive together can therefore both pass the check and both
+write, leaving one account a single event over the cap or with a pair of
+overlapping fixed events. Only the account itself can do this — a second account
+cannot collide with it — and the next normal edit clears it, so it is left
+as-is rather than taking a per-account lock on every write.
+
 ## Sign-in throttling
 
 Five failed attempts inside fifteen minutes start a lock on the **account**, and
