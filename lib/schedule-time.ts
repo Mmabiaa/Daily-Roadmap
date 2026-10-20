@@ -25,8 +25,27 @@ export function isTime(value: unknown): value is string {
   return typeof value === 'string' && TIME_PATTERN.test(value)
 }
 
+/**
+ * True only for a real calendar date in `YYYY-MM-DD` form.
+ *
+ * The pattern alone accepts `2026-02-30` and `2026-13-01`, which are not dates.
+ * So the parse has to round-trip: `Date.UTC` rolls an impossible month or day
+ * into the next one, and only a date that survives unchanged is real.
+ */
 export function isDate(value: unknown): value is string {
-  return typeof value === 'string' && DATE_PATTERN.test(value)
+  if (typeof value !== 'string' || !DATE_PATTERN.test(value)) return false
+
+  const [year, month, day] = value.split('-').map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day))
+  // `Date.UTC` folds a year below 100 into the 1900s, so put the year back
+  // before comparing — otherwise `0026-01-01` would be read as 1926.
+  parsed.setUTCFullYear(year)
+
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
 }
 
 /**

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { newPinProblem } from './pin'
-import { DATE_PATTERN, TIME_PATTERN } from './schedule-time'
+import { isDate, TIME_PATTERN } from './schedule-time'
 
 /**
  * The pre-1A event shape: a weekday plus a start time, with no stored end.
@@ -45,7 +45,8 @@ export const KindSchema = z.enum(KINDS)
 export type Kind = z.infer<typeof KindSchema>
 
 const TimeString = z.string().regex(TIME_PATTERN, 'Use a 24-hour HH:MM time')
-const DateString = z.string().regex(DATE_PATTERN, 'Use a YYYY-MM-DD date')
+/** A real calendar date: the pattern alone would accept 2026-02-30. */
+const DateString = z.string().refine(isDate, 'Use a real YYYY-MM-DD date')
 
 /** Either a set of weekdays, or one fixed calendar date. */
 export const RepeatSchema = z.discriminatedUnion('type', [
