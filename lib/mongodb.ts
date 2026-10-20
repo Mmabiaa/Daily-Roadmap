@@ -38,10 +38,11 @@ export async function getDb(): Promise<Db> {
 /**
  * Creates every index the app relies on, once per server process.
  *
- * Two of these are correctness guarantees, not just query speed:
+ * Three of these are correctness guarantees, not just query speed:
  * the unique indexes on `users.username` / `users.email` make a duplicate
- * sign-up impossible even when two requests race, and the TTL index on
- * `pin_resets.expiresAt` lets MongoDB delete used-up codes by itself.
+ * sign-up impossible even when two requests race, the TTL index on
+ * `pin_resets.expiresAt` lets MongoDB delete used-up codes by itself, and the
+ * unique index on a completion stops one block being ticked twice.
  */
 let indexes: Promise<void> | null = null
 
@@ -52,7 +53,13 @@ export function ensureIndexes(): Promise<void> {
       await Promise.all([
         db.collection('users').createIndex({ username: 1 }, { unique: true }),
         db.collection('users').createIndex({ email: 1 }, { unique: true, sparse: true }),
-        db.collection('events').createIndex({ userId: 1, day: 1 }),
+        // Events are read by owner; the resolver filters the days in memory.
+        db.collection('events').createIndex({ ownerId: 1 }),
+        // One completion per event per day. Unique, so a retried or double
+        // tap cannot create a second row for the same block.
+        db
+          .collection('completions')
+          .createIndex({ ownerId: 1, date: 1, eventId: 1 }, { unique: true }),
         db.collection('progress').createIndex({ userId: 1 }, { unique: true }),
         db.collection('pin_resets').createIndex({ userId: 1 }, { unique: true }),
         db.collection('pin_resets').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),

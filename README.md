@@ -155,8 +155,9 @@ to a protected `/api/*` route get a JSON `401`, never an HTML redirect.
 
 | Collection   | Contents                                                                      |
 | ------------ | ----------------------------------------------------------------------------- |
-| `users`      | Accounts: `username`, `email`, bcrypt `pinHash`, `createdAt`.                 |
-| `events`     | Schedule blocks owned by a user: `userId`, `day`, `time`, `title`, `category`, `note`, `essential`. |
+| `users`      | Accounts: `username`, `email`, bcrypt `pinHash`, `timezone`, `createdAt`.     |
+| `events`     | Schedule blocks owned by a user: `ownerId`, `title`, `category`, `kind`, `start`, `end`, `repeat`, `startDate`, `endDate`, `essential`, `exceptions`, `source`, `note`. A legacy row (pre-1A) still carries `userId`, `day` and `time` until the migration runs. |
+| `completions`| One ticked block: `ownerId`, `date` (in the owner's zone), `eventId`, `doneAt`. Unique on `(ownerId, date, eventId)`. |
 | `progress`   | Per-user `checks`, `reviews`, `energy` and `theme`.                           |
 | `pin_resets` | Pending PIN reset codes: `userId`, bcrypt `codeHash`, `expiresAt`, `attempts`. |
 | `rate_limits` | Sign-in throttle buckets, one per account and per hashed IP: `failures`, `windowStartedAt`, `lockedUntil`, `expiresAt`. |
@@ -164,7 +165,8 @@ to a protected `/api/*` route get a JSON `401`, never an HTML redirect.
 Indexes are created automatically on first use (`ensureIndexes` in
 [`lib/mongodb.ts`](./lib/mongodb.ts)). The unique indexes on `users.username`
 and `users.email` are what make duplicate sign-ups impossible even under
-concurrent requests, and the TTL indexes on `pin_resets.expiresAt` and
+concurrent requests, the unique index on a completion stops one block being
+ticked twice, and the TTL indexes on `pin_resets.expiresAt` and
 `rate_limits.expiresAt` let MongoDB clean up expired rows on its own.
 
 ## Sign-in throttling

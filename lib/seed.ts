@@ -3,6 +3,7 @@ import { hashPin, normalizeEmail } from './auth'
 import { schedule, days, Day } from './schedule'
 import { NEW_PIN_PATTERN, NEW_PIN_RULE } from './pin'
 import { normalizeTimeZone } from './timezone'
+import { legacyEnd } from './schedule-time'
 
 export async function seedDatabase() {
   const db = await getDb()
@@ -42,33 +43,44 @@ export async function seedDatabase() {
 
   // 2. Events stored before scheduling became per-user have no owner. Claim
   //    them for the admin so nothing is lost when reads become user-scoped.
+  //    `ownerId` is set alongside `userId` so the deployed code and the new
+  //    endpoints both find them (the migration does the same for real data).
   const claimed = await db.collection('events').updateMany(
     { userId: { $exists: false } },
-    { $set: { userId: adminId } }
+    { $set: { userId: adminId, ownerId: adminId } }
   )
   if (claimed.modifiedCount) {
     console.log(`✓ Linked ${claimed.modifiedCount} existing events to ${username}`)
   }
 
   // 3. Give the admin the starter plan, once. Every other account starts empty
-  //    and adds its own events.
-  const adminEvents = await db.collection('events').countDocuments({ userId: adminId })
+  //    and adds its own events. Written in the v2 shape: an explicit end taken
+  //    from the next block (last block ends at `LAST_WAKE`), a weekly repeat,
+  //    and a kind derived from the category — `class` is fixed, the rest move.
+  const adminEvents = await db.collection('events').countDocuments({ ownerId: adminId })
   if (adminEvents === 0) {
-    const events = []
+    const events: Record<string, unknown>[] = []
+    const createdAt = new Date()
 
     for (const day of days) {
       const blocks = schedule[day as Day]
-      for (const block of blocks) {
+      blocks.forEach((block, i) => {
         events.push({
+          ownerId: adminId,
           userId: adminId,
-          day,
-          time: block.time,
           title: block.title,
           category: block.category,
-          note: block.note,
-          essential: block.essential,
+          kind: block.category === 'class' ? 'fixed' : 'flexible',
+          start: block.time,
+          end: legacyEnd(block.time, blocks[i + 1]?.time),
+          repeat: { type: 'weekly', days: [day] },
+          essential: Boolean(block.essential),
+          exceptions: [],
+          source: 'seed',
+          ...(block.note ? { note: block.note } : {}),
+          createdAt,
         })
-      }
+      })
     }
 
     await db.collection('events').insertMany(events)
