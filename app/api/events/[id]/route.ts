@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/mongodb'
-import { getSession } from '@/lib/auth'
-import { EventSchema } from '@/lib/models'
 import { ObjectId } from 'mongodb'
+import { getDb } from '@/lib/mongodb'
+import { route } from '@/lib/api'
+import { EventSchema } from '@/lib/models'
 
 /**
  * Owner-scoped updates: the filter always includes `userId`, so an event that
@@ -13,28 +13,11 @@ function ownerFilter(id: string, userId: string) {
   return { _id: new ObjectId(id), userId }
 }
 
-export async function PATCH(
-  request: Request,
-  ctx: RouteContext<'/api/events/[id]'>
-) {
-  try {
-    const { id } = await ctx.params
-
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const parsed = EventSchema.safeParse(await request.json())
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.issues[0]?.message ?? 'Invalid event' },
-        { status: 400 }
-      )
-    }
-    const validated = parsed.data
-
-    const filter = ownerFilter(id, session.userId)
+export const PATCH = route(
+  { body: EventSchema, failure: 'Failed to update event' },
+  async ({ user, params, body }) => {
+    const id = String(params.id)
+    const filter = ownerFilter(id, user.id)
     if (!filter) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
@@ -42,12 +25,12 @@ export async function PATCH(
     const db = await getDb()
     const result = await db.collection('events').updateOne(filter, {
       $set: {
-        day: validated.day,
-        time: validated.time,
-        title: validated.title,
-        category: validated.category,
-        note: validated.note,
-        essential: validated.essential,
+        day: body.day,
+        time: body.time,
+        title: body.title,
+        category: body.category,
+        note: body.note,
+        essential: body.essential,
         updatedAt: new Date(),
       },
     })
@@ -56,29 +39,14 @@ export async function PATCH(
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ _id: id, ...validated })
-  } catch (error) {
-    console.error('Update event error:', error)
-    return NextResponse.json(
-      { error: 'Failed to update event' },
-      { status: 500 }
-    )
+    return NextResponse.json({ _id: id, ...body })
   }
-}
+)
 
-export async function DELETE(
-  request: Request,
-  ctx: RouteContext<'/api/events/[id]'>
-) {
-  try {
-    const { id } = await ctx.params
-
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const filter = ownerFilter(id, session.userId)
+export const DELETE = route(
+  { failure: 'Failed to delete event' },
+  async ({ user, params }) => {
+    const filter = ownerFilter(String(params.id), user.id)
     if (!filter) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 })
     }
@@ -91,11 +59,5 @@ export async function DELETE(
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error('Delete event error:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete event' },
-      { status: 500 }
-    )
   }
-}
+)

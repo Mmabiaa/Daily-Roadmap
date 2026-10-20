@@ -26,6 +26,7 @@ and every tick is private to the account that created it.
   their 4–8 digit PIN.
 - **Forgot PIN** — a 6-digit code is emailed (SMTP), then you choose a new PIN.
   Codes expire after 10 minutes, are single-use, and allow five attempts.
+  Choosing a new PIN signs every other device out.
 - **Sign out** — from the top bar.
 
 Everything you tick off (task completion, reviews, energy, theme) is stored in
