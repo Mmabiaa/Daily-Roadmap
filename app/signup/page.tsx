@@ -105,11 +105,11 @@ export default function SignUpPage() {
                 required
                 autoComplete="new-password"
                 inputMode="numeric"
-                pattern="\d{4,8}"
+                pattern="\d{6,8}"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 aria-invalid={!!error}
-                placeholder="4 to 8 digits"
+                placeholder="6 to 8 digits"
               />
               <button
                 type="button"

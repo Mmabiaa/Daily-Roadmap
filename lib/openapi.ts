@@ -364,7 +364,7 @@ export const openApiDocument = {
         type: 'object',
         properties: {
           username: { type: 'string', example: 'mmabiaa' },
-          pin: { type: 'string', example: '1234' },
+          pin: { type: 'string', example: '482915', description: 'The account PIN. Accounts created before the 6-digit minimum still sign in with their 4–8 digit PIN.' },
         },
         required: ['username', 'pin'],
       },
@@ -373,7 +373,7 @@ export const openApiDocument = {
         properties: {
           username: { type: 'string', example: 'mmabiaa', description: '3–32 letters, numbers, dot, dash or underscore.' },
           email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Used to send PIN reset codes.' },
-          pin: { type: 'string', example: '1234', description: '4–8 digits.' },
+          pin: { type: 'string', example: '482915', description: '6–8 digits, and not trivially guessable (no repeated single digit, no consecutive run, not a common PIN).' },
         },
         required: ['username', 'email', 'pin'],
       },
@@ -406,7 +406,7 @@ export const openApiDocument = {
         properties: {
           identifier: { type: 'string', example: 'mmabiaa', description: 'The same username or email used to request the code.' },
           otp: { type: 'string', example: '482915', description: 'The 6-digit code from the email.' },
-          pin: { type: 'string', example: '5678', description: 'The new 4–8 digit PIN.' },
+          pin: { type: 'string', example: '739184', description: 'The new PIN: 6–8 digits, and not trivially guessable.' },
         },
         required: ['identifier', 'otp', 'pin'],
       },

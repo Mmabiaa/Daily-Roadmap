@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { newPinProblem } from './pin'
 
 export const EventSchema = z.object({
   _id: z.string().optional(),
@@ -22,15 +23,24 @@ export const UserSchema = z.object({
 
 export type User = z.infer<typeof UserSchema>
 
-/** A PIN is 4–8 digits; usernames are short and URL-safe. */
-export const PIN_PATTERN = /^\d{4,8}$/
+/** Usernames are short and URL-safe; reset codes are always six digits. */
 export const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,32}$/
 export const OTP_PATTERN = /^\d{6}$/
+
+/**
+ * A PIN chosen from now on: 6–8 digits and not trivially guessable.
+ * Sign-in has no equivalent check, so accounts with older 4–8 digit PINs keep
+ * working — see `lib/pin.ts`.
+ */
+const NewPinSchema = z.string().superRefine((value, ctx) => {
+  const problem = newPinProblem(value)
+  if (problem) ctx.addIssue({ code: 'custom', message: problem })
+})
 
 export const SignUpSchema = z.object({
   username: z.string().trim().regex(USERNAME_PATTERN, 'Use 3–32 letters, numbers, dot, dash or underscore'),
   email: z.email('Enter a valid email address'),
-  pin: z.string().regex(PIN_PATTERN, 'PIN must be 4–8 digits'),
+  pin: NewPinSchema,
 })
 
 export type SignUpInput = z.infer<typeof SignUpSchema>
@@ -43,7 +53,7 @@ export const ForgotPinSchema = z.object({
 export const ResetPinSchema = z.object({
   identifier: z.string().trim().min(1),
   otp: z.string().regex(OTP_PATTERN, 'Enter the 6-digit code'),
-  pin: z.string().regex(PIN_PATTERN, 'PIN must be 4–8 digits'),
+  pin: NewPinSchema,
 })
 
 /** A single block's completion state, keyed by `keyFor(date, day, time)`. */

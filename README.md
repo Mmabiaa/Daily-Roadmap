@@ -19,9 +19,11 @@ and every tick is private to the account that created it.
 
 ## Accounts
 
-- **Sign up** — username, email and a 4–8 digit PIN. You are signed in straight
-  away and start with an empty schedule to fill in yourself.
-- **Sign in** — username + PIN.
+- **Sign up** — username, email and a 6–8 digit PIN that is not trivially
+  guessable. You are signed in straight away and start with an empty schedule
+  to fill in yourself.
+- **Sign in** — username + PIN. Accounts created earlier keep working with
+  their 4–8 digit PIN.
 - **Forgot PIN** — a 6-digit code is emailed (SMTP), then you choose a new PIN.
   Codes expire after 10 minutes, are single-use, and allow five attempts.
 - **Sign out** — from the top bar.
