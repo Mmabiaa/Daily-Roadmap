@@ -1,6 +1,6 @@
 import { z } from 'zod'
-import { newPinProblem } from './pin'
-import { isDate, TIME_PATTERN } from './schedule-time'
+import { newPinProblem } from './pin.ts'
+import { isDate, TIME_PATTERN } from './schedule-time.ts'
 
 /**
  * The pre-1A event shape: a weekday plus a start time, with no stored end.
@@ -50,7 +50,14 @@ const DateString = z.string().refine(isDate, 'Use a real YYYY-MM-DD date')
 
 /** Either a set of weekdays, or one fixed calendar date. */
 export const RepeatSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('weekly'), days: z.array(DayNameSchema).min(1) }),
+  z.object({
+    type: z.literal('weekly'),
+    // A repeated weekday would resolve the same block twice on that day.
+    days: z
+      .array(DayNameSchema)
+      .min(1)
+      .refine((listed) => new Set(listed).size === listed.length, 'List each weekday once'),
+  }),
   z.object({ type: z.literal('once'), date: DateString }),
 ])
 export type Repeat = z.infer<typeof RepeatSchema>
@@ -97,7 +104,12 @@ export const EventDocSchema = z.object({
 })
 export type EventDoc = z.infer<typeof EventDocSchema>
 
-/** Fields a client may set on a new event, or replace when editing one. */
+/**
+ * Fields a client may set on a new event, or replace when editing one.
+ * `exceptions` is deliberately absent: those are written by the server when a
+ * `scope: 'this'` edit or a one-day skip names a date, so a client can neither
+ * forge one nor drop the ones already stored.
+ */
 const EventFields = z.object({
   title: z.string().trim().min(1).max(120),
   category: CategoryNameSchema,
@@ -109,21 +121,44 @@ const EventFields = z.object({
   endDate: DateString.optional(),
   note: z.string().max(500).optional(),
   essential: z.boolean().optional(),
-  exceptions: z.array(ExceptionSchema).optional(),
 })
 
 /**
- * A new or edited event must have a real length. Zero-length blocks only exist
- * in migrated data (two legacy blocks sharing a start time); they cannot be
- * created or kept through this API.
+ * Rules about the event as a whole rather than a single field. Create and edit
+ * both run these, so a block of no length, a window that ends before it starts
+ * or a one-off carrying a window is refused at the door rather than stored.
  */
-const endsDiffer = (value: { start: string; end: string }) => value.end !== value.start
-const endsDifferIssue = {
-  message: 'End time must differ from the start time',
-  path: ['end'],
+function eventIssues(
+  value: { start: string; end: string; repeat: Repeat; startDate?: string; endDate?: string },
+  ctx: z.RefinementCtx
+) {
+  if (value.end === value.start) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['end'],
+      message: 'End time must differ from the start time',
+    })
+  }
+
+  if (value.startDate && value.endDate && value.endDate < value.startDate) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['endDate'],
+      message: 'End date must not be before the start date',
+    })
+  }
+
+  // A one-off is dated by its own `repeat.date`; a window would only disagree.
+  if (value.repeat.type === 'once' && (value.startDate ?? value.endDate)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [value.startDate ? 'startDate' : 'endDate'],
+      message: 'A one-off event takes no start or end date',
+    })
+  }
 }
 
-export const EventInputSchema = EventFields.refine(endsDiffer, endsDifferIssue)
+export const EventInputSchema = EventFields.superRefine(eventIssues)
 export type EventInput = z.infer<typeof EventInputSchema>
 
 /**
@@ -133,7 +168,7 @@ export type EventInput = z.infer<typeof EventInputSchema>
 export const EventUpdateSchema = EventFields.extend({
   scope: z.enum(['this', 'future']).default('future'),
   date: DateString.optional(),
-}).refine(endsDiffer, endsDifferIssue)
+}).superRefine(eventIssues)
 export type EventUpdate = z.infer<typeof EventUpdateSchema>
 
 /**

@@ -193,6 +193,13 @@ ticked twice, and the TTL indexes on `pin_resets.expiresAt` and
   sets, their date ranges and their times all intersect. A clash returns `409`
   naming the event it clashes with. `flexible` events may sit on top of
   anything, so a study block can be moved onto a class without a fight.
+- **Input rules** — `start` and `end` must differ; `endDate` may not come before
+  `startDate`; a `once` event takes no `startDate`/`endDate`; and a `weekly`
+  event lists each weekday at most once. A body that breaks one of these is a
+  `400`.
+- **Per-date changes** — `exceptions` are written by the server, never sent by
+  the client: a `scope: 'this'` edit or a one-day skip adds one. An event may
+  carry at most **500** of them, past which the edit is refused with a `400`.
 
 ## Sign-in throttling
 

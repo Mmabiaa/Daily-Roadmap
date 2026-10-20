@@ -249,7 +249,7 @@ export const openApiDocument = {
           'The new event is owned by the session user. `start` and `end` must differ. Two `fixed` ' +
           'events may not overlap: a clash returns 409 naming the conflicting event. `flexible` ' +
           'events may overlap anything. An account may keep at most 300 events, after which a ' +
-          'create returns 400.',
+          'create returns 400. `exceptions` is server-managed, so one sent in a body is ignored.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
         responses: {
           201: {
@@ -283,7 +283,9 @@ export const openApiDocument = {
           '(and their ticks) as they were. Editing on or before the series’ first day replaces ' +
           'the series. A `fixed` overlap returns 409 naming the conflicting event. New or edited ' +
           'events must have `end !== start`. A series edit is applied in one transaction: if any ' +
-          'part of it fails, the series is left exactly as it was.',
+          'part of it fails, the series is left exactly as it was. `exceptions` is server-managed: ' +
+          'one sent in a body is ignored, and a `this` edit writes one for `date`. An event may ' +
+          'carry at most 500 of them (400 past that).',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventUpdate' }),
         responses: {
           200: {
@@ -517,13 +519,20 @@ export const openApiDocument = {
             description: 'Repeats on the given weekdays.',
             properties: {
               type: { type: 'string', enum: ['weekly'] },
-              days: { type: 'array', minItems: 1, items: { type: 'string', enum: days } },
+              days: {
+                type: 'array',
+                minItems: 1,
+                items: { type: 'string', enum: days },
+                description: 'Each weekday at most once.',
+              },
             },
             required: ['type', 'days'],
           },
           {
             type: 'object',
-            description: 'Occurs on exactly one calendar date.',
+            description:
+              'Occurs on exactly one calendar date. A one-off carries no `startDate`/`endDate`; ' +
+              'the window belongs to a repeating series, and sending one is a 400.',
             properties: {
               type: { type: 'string', enum: ['once'] },
               date: { type: 'string', example: '2026-10-19' },
@@ -535,8 +544,9 @@ export const openApiDocument = {
       EventException: {
         type: 'object',
         description:
-          'A change to a repeating event on one date. `skip` hides it that day; the other fields ' +
-          'replace what the event says, for that date only.',
+          'Server-managed: written when a `scope: \'this\'` edit or a one-day skip names a date, ' +
+          'never accepted on create or update. `skip` hides the event that day; the other fields ' +
+          'replace what the event says, for that date only. One event carries at most 500.',
         properties: {
           date: { type: 'string', example: '2026-10-19' },
           skip: { type: 'boolean' },
@@ -550,6 +560,10 @@ export const openApiDocument = {
       },
       EventInput: {
         type: 'object',
+        description:
+          'The fields a client may set. `start` and `end` must differ; `endDate` must not precede ' +
+          '`startDate`; a `once` event takes neither; a `weekly` event lists each weekday once. ' +
+          '`exceptions` is not accepted — see `EventException`; one sent here is ignored.',
         properties: {
           title: { type: 'string', example: 'Study: assignments' },
           category: { type: 'string', enum: categories },
@@ -557,18 +571,17 @@ export const openApiDocument = {
           start: { type: 'string', example: '09:00' },
           end: { type: 'string', example: '10:00', description: 'Must differ from `start`.' },
           repeat: { $ref: '#/components/schemas/Repeat' },
-          startDate: { type: 'string', example: '2026-10-19', description: 'First day the event applies. Optional for weekly events.' },
-          endDate: { type: 'string', example: '2026-12-20', description: 'Last day the event applies. Optional.' },
+          startDate: { type: 'string', example: '2026-10-19', description: 'First day the event applies. Optional for weekly events; refused on a `once` event.' },
+          endDate: { type: 'string', example: '2026-12-20', description: 'Last day the event applies. Optional, and never before `startDate`; refused on a `once` event.' },
           note: { type: 'string' },
           essential: { type: 'boolean' },
-          exceptions: { type: 'array', items: { $ref: '#/components/schemas/EventException' } },
         },
         required: ['title', 'category', 'kind', 'start', 'end', 'repeat'],
       },
       EventUpdate: {
         description:
-          'The full set of editable fields, plus `scope` and the `date` they apply to. `scope` ' +
-          'defaults to `future`.',
+          'The full set of editable fields — the same set as `EventInput`, `exceptions` included ' +
+          'in neither — plus `scope` and the `date` they apply to. `scope` defaults to `future`.',
         allOf: [
           { $ref: '#/components/schemas/EventInput' },
           {
@@ -589,8 +602,13 @@ export const openApiDocument = {
               _id: { type: 'string', example: '652f1c9f8a1b2c3d4e5f6a7b' },
               source: { type: 'string', enum: ['user', 'seed', 'migration'] },
               ownerId: { type: 'string', description: 'Owner of the event (set by the server, never by the client).' },
+              exceptions: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/EventException' },
+                description: 'Server-managed per-date changes, at most 500 per event.',
+              },
             },
-            required: ['_id', 'source'],
+            required: ['_id', 'source', 'exceptions'],
           },
         ],
       },

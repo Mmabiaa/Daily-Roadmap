@@ -8,8 +8,10 @@ import { ensureIndexes, getDb } from './mongodb.ts'
 import { accountKey, ipKey } from './rate-limit-policy.ts'
 import { recordFailure } from './rate-limit.ts'
 import type { EventInput } from './models.ts'
+import { addDays } from './schedule-time.ts'
 import {
   MAX_EVENTS,
+  MAX_EXCEPTIONS,
   createEvent,
   deleteEvent,
   getDayView,
@@ -269,6 +271,31 @@ describe('database-backed behaviour', { skip: skip && 'SKIP_INTEGRATION=1 is set
         () => updateEvent(owner, event._id, { ...weekly(), scope: 'this', date: '2026-10-20' }),
         failsWith(400)
       )
+    })
+
+    it('refuses a date change once an event carries the cap', async () => {
+      const event = await createEvent(owner, weekly())
+
+      // Fill the event to the cap directly; the API cannot be used to reach it.
+      const full = Array.from({ length: MAX_EXCEPTIONS }, (_, index) => ({
+        date: addDays('2020-01-01', index),
+        skip: true,
+      }))
+      await db
+        .collection('events')
+        .updateOne({ _id: new ObjectId(event._id), ownerId: owner }, { $set: { exceptions: full } })
+
+      await assert.rejects(
+        () => updateEvent(owner, event._id, { ...weekly(), scope: 'this', date: NEXT_MONDAY }),
+        failsWith(400)
+      )
+      await assert.rejects(
+        () => deleteEvent(owner, event._id, { scope: 'this', date: NEXT_MONDAY }),
+        failsWith(400)
+      )
+
+      const stored = await db.collection('events').findOne({ _id: new ObjectId(event._id) })
+      assert.equal((stored?.exceptions as unknown[]).length, MAX_EXCEPTIONS)
     })
 
     it('scope future splits the series, keeping past days and their ticks', async () => {

@@ -5,6 +5,7 @@ import type {
   CategoryName,
   CompletionToggle,
   EventDoc,
+  EventException,
   EventInput,
   EventUpdate,
   Repeat,
@@ -44,6 +45,14 @@ const COMPLETIONS = 'completions'
 export const MAX_EVENTS = 300
 
 /**
+ * How many per-date changes one event may carry. Exceptions are only ever
+ * written by the server (a `scope: 'this'` edit or a one-day skip), so this is
+ * a backstop against one event growing without bound rather than a limit a
+ * client can raise.
+ */
+export const MAX_EXCEPTIONS = 500
+
+/**
  * Runs `work` in a single transaction, so its writes land together or not at
  * all. Series edits and deletes touch more than one document — an event plus
  * its completions, or an old event plus its replacement — and a half-applied
@@ -81,7 +90,6 @@ type EventFields = {
   endDate?: string
   note?: string
   essential?: boolean
-  exceptions?: EventDoc['exceptions']
 }
 
 /** An event as the API returns it: ids as strings, no internal fields. */
@@ -172,12 +180,29 @@ function toStored(ownerId: string, fields: EventFields, source: Source) {
     ...(fields.startDate ? { startDate: fields.startDate } : {}),
     ...(fields.endDate ? { endDate: fields.endDate } : {}),
     essential: fields.essential ?? false,
-    exceptions: fields.exceptions ?? [],
+    // A new event starts with no per-date changes; the server adds them later.
+    exceptions: [],
     source,
     ...(fields.note ? { note: fields.note } : {}),
     createdAt: new Date(),
     updatedAt: new Date(),
   }
+}
+
+/**
+ * The event's exceptions with `exception` added, replacing any already stored
+ * for that date. Refuses once the event is at the cap, so one series cannot
+ * grow a per-date change for every day of the year.
+ */
+function withException(event: EventDoc, exception: EventException): EventException[] {
+  const kept = (event.exceptions ?? []).filter((entry) => entry.date !== exception.date)
+  if (kept.length >= MAX_EXCEPTIONS) {
+    throw new ApiError(
+      400,
+      `An event can carry at most ${MAX_EXCEPTIONS} date changes. Split it into separate events.`
+    )
+  }
+  return [...kept, exception]
 }
 
 /** Every fixed event of the owner that the candidate would clash with. */
@@ -281,17 +306,14 @@ export async function updateEvent(
     const clash = await findClashOnDate(ownerId, date, candidate, _id)
     if (clash) throw new ApiError(409, `That time clashes with ${describeEvent(clash)}`)
 
-    const exceptions = [
-      ...event.exceptions.filter((entry) => entry.date !== date),
-      {
-        date,
-        start: update.start,
-        end: update.end,
-        title: update.title,
-        essential: update.essential ?? false,
-        ...(update.note ? { note: update.note } : {}),
-      },
-    ]
+    const exceptions = withException(event, {
+      date,
+      start: update.start,
+      end: update.end,
+      title: update.title,
+      essential: update.essential ?? false,
+      ...(update.note ? { note: update.note } : {}),
+    })
 
     const updatedAt = new Date()
     await db
@@ -371,10 +393,7 @@ export async function deleteEvent(
       throw new ApiError(400, 'That event does not occur on that date')
     }
 
-    const exceptions = [
-      ...event.exceptions.filter((entry) => entry.date !== date),
-      { date: date!, skip: true },
-    ]
+    const exceptions = withException(event, { date: date!, skip: true })
     await db
       .collection(EVENTS)
       .updateOne({ _id, ownerId }, { $set: { exceptions, updatedAt: new Date() } })
