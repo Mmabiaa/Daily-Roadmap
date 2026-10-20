@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { ensureIndexes, getDb } from '@/lib/mongodb'
-import { generateToken, hashPin, normalizeEmail, setSession } from '@/lib/auth'
+import { hashPin, normalizeEmail, setSession } from '@/lib/auth'
+import { generateToken } from '@/lib/session'
 import { SignUpSchema } from '@/lib/models'
 
 const DUPLICATE_KEY = 11000
@@ -46,10 +47,13 @@ export async function POST(request: Request) {
       username,
       email,
       pinHash: await hashPin(parsed.data.pin),
+      // New accounts start at version 0; changing the PIN or signing out
+      // everywhere increments it and retires the sessions handed out before.
+      tokenVersion: 0,
       createdAt: new Date(),
     })
 
-    await setSession(generateToken(result.insertedId.toString()))
+    await setSession(generateToken(result.insertedId.toString(), 0))
 
     return NextResponse.json({ success: true, username }, { status: 201 })
   } catch (error: any) {

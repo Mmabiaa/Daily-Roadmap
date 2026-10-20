@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getDb } from '@/lib/mongodb'
 import {
-  generateToken,
   hashPin,
   normalizeEmail,
   OTP_MAX_ATTEMPTS,
   setSession,
   verifyPin,
 } from '@/lib/auth'
+import { generateToken, tokenVersionOf } from '@/lib/session'
 import { ResetPinSchema } from '@/lib/models'
 import { accountKey } from '@/lib/rate-limit-policy'
 import { clearFailures } from '@/lib/rate-limit'
@@ -53,9 +53,17 @@ export async function POST(request: Request) {
       return NextResponse.json(invalidCode, { status: 400 })
     }
 
-    await db
-      .collection('users')
-      .updateOne({ _id: user._id }, { $set: { pinHash: await hashPin(pin), updatedAt: new Date() } })
+    // Changing the PIN retires every session that was already handed out, so a
+    // thief holding an old token loses it the moment the owner resets the PIN.
+    // The increment and the new hash land in one atomic update.
+    const updated = await db.collection('users').findOneAndUpdate(
+      { _id: user._id },
+      {
+        $set: { pinHash: await hashPin(pin), updatedAt: new Date() },
+        $inc: { tokenVersion: 1 },
+      },
+      { returnDocument: 'after' }
+    )
 
     // The code is single-use: clearing it also resets the attempt counter.
     await db.collection(COLLECTION).deleteOne({ userId })
@@ -65,7 +73,9 @@ export async function POST(request: Request) {
     // Otherwise a reset PIN would still be unusable until the lock expired.
     await clearFailures(accountKey(user.username))
 
-    await setSession(generateToken(userId))
+    // Signed in on the version we just created, so this device works while
+    // every other one is signed out.
+    await setSession(generateToken(userId, tokenVersionOf(updated)))
 
     return NextResponse.json({ success: true })
   } catch (error) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { ensureIndexes, getDb } from '@/lib/mongodb'
-import { dummyPinHash, generateToken, verifyPin } from '@/lib/auth'
+import { dummyPinHash, setSession, verifyPin } from '@/lib/auth'
+import { generateToken, tokenVersionOf } from '@/lib/session'
 import { clientIpFrom } from '@/lib/client-ip'
 import { accountKey, ipKey, retryAfterSeconds } from '@/lib/rate-limit-policy'
 import { clearFailures, lockedUntil, recordFailure } from '@/lib/rate-limit'
@@ -58,18 +59,11 @@ export async function POST(request: Request) {
     // reset the IP bucket and carry on spraying other accounts.
     await clearFailures(attempted)
 
-    const token = generateToken(user._id.toString())
+    // The token carries the account's current version, so a token minted before
+    // the last PIN change (or "sign out everywhere") is refused on later requests.
+    await setSession(generateToken(user._id.toString(), tokenVersionOf(user)))
 
-    const response = NextResponse.json({ success: true })
-    response.cookies.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: '/',
-    })
-
-    return response
+    return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Sign in error:', error)
     return NextResponse.json(

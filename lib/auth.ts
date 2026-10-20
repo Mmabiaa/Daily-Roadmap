@@ -1,9 +1,50 @@
-import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import { randomInt } from 'node:crypto'
 import { cookies } from 'next/headers'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-in-production'
+import { SessionPayload, verifyToken } from './session'
+
+/** Name of the session cookie. Defined once so every route agrees. */
+export const SESSION_COOKIE = 'auth-token'
+
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
+
+/**
+ * The only place session cookie attributes are decided, so pages and API routes
+ * cannot drift apart. httpOnly keeps the token away from JavaScript; `lax`
+ * still sends it on top-level navigations, which is what the app needs.
+ */
+function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    path: '/',
+  }
+}
+
+/** The raw cookie value on the current request, if there is one. */
+export async function sessionToken(): Promise<string | null> {
+  const cookieStore = await cookies()
+  return cookieStore.get(SESSION_COOKIE)?.value ?? null
+}
+
+/** Verifies the session cookie. Says nothing about whether the account still exists. */
+export async function getSession(): Promise<SessionPayload | null> {
+  const token = await sessionToken()
+  return token ? verifyToken(token) : null
+}
+
+export async function setSession(token: string): Promise<void> {
+  const cookieStore = await cookies()
+  cookieStore.set(SESSION_COOKIE, token, sessionCookieOptions())
+}
+
+export async function clearSession(): Promise<void> {
+  const cookieStore = await cookies()
+  cookieStore.delete(SESSION_COOKIE)
+}
 
 export async function hashPin(pin: string): Promise<string> {
   return bcrypt.hash(pin, 10)
@@ -41,40 +82,3 @@ export function normalizeEmail(email: string): string {
 export const OTP_TTL_MINUTES = 10
 export const OTP_MAX_ATTEMPTS = 5
 export const OTP_RESEND_COOLDOWN_SECONDS = 60
-
-export function generateToken(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' })
-}
-
-export function verifyToken(token: string): { userId: string } | null {
-  try {
-    return jwt.verify(token, JWT_SECRET) as { userId: string }
-  } catch {
-    return null
-  }
-}
-
-export async function getSession(): Promise<{ userId: string } | null> {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('auth-token')?.value
-  
-  if (!token) return null
-  
-  return verifyToken(token)
-}
-
-export async function setSession(token: string) {
-  const cookieStore = await cookies()
-  cookieStore.set('auth-token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
-    path: '/',
-  })
-}
-
-export async function clearSession() {
-  const cookieStore = await cookies()
-  cookieStore.delete('auth-token')
-}
