@@ -1574,6 +1574,58 @@
     }
 }
 
+/* ───────────── Schedule loading skeleton ───────────── */
+
+.skeleton-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--card);
+}
+
+.skeleton-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.skeleton-line {
+    height: 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--muted) 24%, transparent);
+    animation: skeleton-fade 1.4s ease-in-out infinite;
+}
+
+.skeleton-line--time {
+    flex: 0 0 44px;
+}
+
+.skeleton-line--title {
+    flex: 1 1 auto;
+}
+
+@keyframes skeleton-fade {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: .45;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .skeleton-line {
+        animation: none;
+    }
+}
+
 /* ───────────── Empty state ───────────── */
 
 .empty-state {

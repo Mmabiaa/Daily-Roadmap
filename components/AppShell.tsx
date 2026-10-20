@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Block, Day, days, schedule } from '@/lib/schedule'
+import { Block, Day, days } from '@/lib/schedule'
 import type { Event } from '@/lib/models'
 import { dateForDay, keyFor, minutes, todayInfo, duration, haptic } from '@/lib/utils'
 
@@ -35,6 +35,39 @@ const changed = <T,>(prev: Record<string, T>, next: Record<string, T>): Record<s
     return out
 }
 
+/** Shown while the signed-in user's own events are still loading. */
+function ScheduleSkeleton() {
+    return (
+        <main className="content" role="status" aria-label="Loading your schedule">
+            <div className="skeleton-card" aria-hidden="true">
+                {[0, 1, 2, 3, 4].map((i) => (
+                    <div className="skeleton-row" key={i}>
+                        <span className="skeleton-line skeleton-line--time" />
+                        <span className="skeleton-line skeleton-line--title" />
+                    </div>
+                ))}
+            </div>
+        </main>
+    )
+}
+
+/** Shown when the schedule could not be loaded. Offers a retry, never a fake plan. */
+function ScheduleErrorState({ onRetry }: { onRetry: () => void }) {
+    return (
+        <main className="content">
+            <div className="empty-state" role="alert">
+                <p>We couldn’t load your schedule.</p>
+                <p className="empty-hint">
+                    Your plan is safe on the server — this looks like a connection problem.
+                </p>
+                <button type="button" className="empty-action" onClick={onRetry}>
+                    Try again
+                </button>
+            </div>
+        </main>
+    )
+}
+
 export function AppShell() {
     const [view, setView] = useState<View>('today')
     const [selectedDay, setSelectedDay] = useState<Day>(todayInfo().day)
@@ -51,6 +84,7 @@ export function AppShell() {
     const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'info' } | null>(null)
     const [celebrate, setCelebrate] = useState(false)
     const [events, setEvents] = useState<Event[] | null>(null)
+    const [eventsError, setEventsError] = useState(false)
     const [formOpen, setFormOpen] = useState(false)
     const [editTarget, setEditTarget] = useState<Event | null>(null)
 
@@ -59,15 +93,17 @@ export function AppShell() {
     const loaded = useRef(false)
     const saved = useRef<StoredProgress>({ checks: {}, reviews: {}, energy: {}, theme: null })
 
-    // Load events from the database. Until they arrive (or if the request
-    // fails) the bundled schedule is used, so the view is never empty.
+    // Load events from the database. Until they arrive we show a skeleton, and
+    // on failure an error with a retry. We never fall back to a bundled plan:
+    // the starter schedule belongs to the seeded account, not to every user.
     const loadEvents = useCallback(async () => {
+        setEventsError(false)
         try {
             const res = await fetch('/api/events', { cache: 'no-store' })
-            if (!res.ok) return
+            if (!res.ok) throw new Error(`Request failed with ${res.status}`)
             setEvents(await res.json())
         } catch {
-            /* keep the bundled fallback schedule */
+            setEventsError(true)
         }
     }, [])
 
@@ -75,10 +111,11 @@ export function AppShell() {
         loadEvents()
     }, [loadEvents])
 
-    // Day → blocks, built from the database; falls back to the bundled plan.
+    // Day → blocks, built only from the signed-in user's own events.
     const scheduleMap = useMemo<Record<Day, Block[]>>(() => {
-        if (!events) return schedule
         const map = {} as Record<Day, Block[]>
+        for (const day of days) map[day] = []
+        if (!events) return map
         for (const day of days) {
             map[day] = events
                 .filter((e) => e.day === day)
@@ -236,9 +273,11 @@ export function AppShell() {
         ? blocks.filter((b) => checks[keyFor(date, activeDay, b.time)]).length / blocks.length
         : 0
 
-    const essentialDone = blocks
-        .filter((b) => b.essential)
-        .every((b) => checks[keyFor(date, activeDay, b.time)])
+    // A day only counts once it has essentials; an empty schedule must not read
+    // as "everything done" (every() on an empty list is true).
+    const essentials = blocks.filter((b) => b.essential)
+    const essentialDone =
+        essentials.length > 0 && essentials.every((b) => checks[keyFor(date, activeDay, b.time)])
 
     const nextBlock =
         currentIndex >= 0
@@ -254,9 +293,10 @@ export function AppShell() {
             const day = days[(d.getDay() + 6) % 7] as Day
             const date = dateForDay(day, d)
             const arr = scheduleMap[day]
-            const ok = arr
-                .filter((b) => b.essential)
-                .every((b) => checks[keyFor(date, day, b.time)])
+            const essentials = arr.filter((b) => b.essential)
+            const ok =
+                essentials.length > 0 &&
+                essentials.every((b) => checks[keyFor(date, day, b.time)])
             if (!ok) break
             count++
             d.setDate(d.getDate() - 1)
@@ -362,7 +402,7 @@ export function AppShell() {
                 onSignOut={handleSignOut}
             />
 
-            {lockIn && (
+            {lockIn && focusBlock && (
                 <FocusMode
                     block={focusBlock}
                     timer={timer}
@@ -380,47 +420,50 @@ export function AppShell() {
             )}
 
             <div className={`page-transition ${view}`}>
-                {view === 'today' && (
-                    <TodayView
-                        date={date}
-                        activeDay={activeDay}
-                        blocks={blocks}
-                        shown={shown}
-                        checks={checks}
-                        completion={completion}
-                        streak={streak}
-                        currentIndex={currentIndex}
-                        nextBlock={nextBlock}
-                        minsToNext={minsToNext}
-                        minimum={minimum}
-                        setMinimum={setMinimum}
-                        onToggle={toggle}
-                        onEdit={openEditEvent}
-                        mounted={mounted}
-                    />
-                )}
-
-                {view === 'week' && (
-                    <WeekView
-                        date={date}
-                        activeDay={activeDay}
-                        blocks={blocks}
-                        shown={shown}
-                        checks={checks}
-                        selectedDay={selectedDay}
-                        setSelectedDay={(d) => {
-                            haptic(5)
-                            setSelectedDay(d)
-                        }}
-                        classHours={classHours}
-                        studyHours={studyHours}
-                        essentialDone={essentialDone}
-                        minimum={minimum}
-                        setMinimum={setMinimum}
-                        onToggle={toggle}
-                        onEdit={openEditEvent}
-                    />
-                )}
+                {(view === 'today' || view === 'week') &&
+                    (eventsError ? (
+                        <ScheduleErrorState onRetry={loadEvents} />
+                    ) : !events ? (
+                        <ScheduleSkeleton />
+                    ) : view === 'today' ? (
+                        <TodayView
+                            date={date}
+                            activeDay={activeDay}
+                            blocks={blocks}
+                            shown={shown}
+                            checks={checks}
+                            completion={completion}
+                            streak={streak}
+                            currentIndex={currentIndex}
+                            nextBlock={nextBlock}
+                            minsToNext={minsToNext}
+                            minimum={minimum}
+                            setMinimum={setMinimum}
+                            onToggle={toggle}
+                            onEdit={openEditEvent}
+                            mounted={mounted}
+                        />
+                    ) : (
+                        <WeekView
+                            date={date}
+                            activeDay={activeDay}
+                            blocks={blocks}
+                            shown={shown}
+                            checks={checks}
+                            selectedDay={selectedDay}
+                            setSelectedDay={(d) => {
+                                haptic(5)
+                                setSelectedDay(d)
+                            }}
+                            classHours={classHours}
+                            studyHours={studyHours}
+                            essentialDone={essentialDone}
+                            minimum={minimum}
+                            setMinimum={setMinimum}
+                            onToggle={toggle}
+                            onEdit={openEditEvent}
+                        />
+                    ))}
 
                 {view === 'review' && (
                     <Review

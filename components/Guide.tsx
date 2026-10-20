@@ -54,8 +54,8 @@ export function Guide() {
                 <h3>Minimum day</h3>
                 <p>
                     <span>
-                        Wake at 5:30 · attend classes · one study block · one commit · one Duolingo
-                        lesson · lights out on time.
+                        Wake at your usual time · the fixed things you cannot move · one study block ·
+                        one small step on a goal of your own · lights out on time.
                     </span>
                 </p>
                 <small>Everything else is a bonus. No catching up tomorrow.</small>
