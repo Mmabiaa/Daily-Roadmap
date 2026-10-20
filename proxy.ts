@@ -52,6 +52,12 @@ export function proxy(request: NextRequest) {
   return NextResponse.next()
 }
 
+// `webmanifest` matters as much as the image extensions: the browser fetches
+// the manifest while the user is still signed out, and an unmatched manifest
+// would be answered with the /signin HTML — which the browser then reports as
+// "Manifest: Line: 1, column: 1, Syntax error."
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico|js|css|woff|woff2|ttf|otf)).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico|js|css|webmanifest|woff|woff2|ttf|otf)).*)',
+  ],
 }
