@@ -113,6 +113,8 @@ curl "http://localhost:3000/api/seed?key=$SEED_SECRET"
 npm run dev      # development
 npm run build    # production build
 npm start        # serve the production build
+npm test         # unit tests (node:test, no extra dependencies)
+npm run typecheck # tsc --noEmit; the build runs type checking too
 ```
 
 Open <http://localhost:3000> and sign in with `ADMIN_USERNAME` / `ADMIN_PIN`,
