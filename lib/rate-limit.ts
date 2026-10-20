@@ -7,6 +7,10 @@ import { FAILURE_WINDOW_MS, lockDurationMs, RateLimitScope } from './rate-limit-
  * `_id` is the bucket key itself, which makes every update an upsert on a
  * single document — two wrong PINs arriving at the same moment cannot lose
  * each other's increment.
+ *
+ * An IP bucket's key carries no username, so it counts every failing attempt
+ * from that address no matter which account was tried, and it is only cleared
+ * by its own window expiring. A successful sign-in never touches it.
  */
 const COLLECTION = 'rate_limits'
 

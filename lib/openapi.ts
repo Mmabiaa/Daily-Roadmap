@@ -87,8 +87,10 @@ export const openApiDocument = {
         description:
           'Verifies the PIN against the stored bcrypt hash and sets the `auth-token` cookie. ' +
           'A wrong PIN and an unknown username return the same 401. Repeated failures lock the ' +
-          'account (up to 1 hour) and the client IP (up to 24 hours); a locked caller gets 429 with ' +
-          'a `Retry-After` header. A correct PIN clears the account\'s failures.',
+          'account after 5 attempts in 15 minutes, and lock the client IP after 30 failed ' +
+          'attempts in 15 minutes counted across all accounts from that address; every lock is ' +
+          'capped at 1 hour. A locked caller gets 429 with a `Retry-After` header. A correct PIN ' +
+          'clears the account\'s failures but never the IP counter.',
         security: [],
         requestBody: jsonBody({ $ref: '#/components/schemas/SignInRequest' }),
         responses: {

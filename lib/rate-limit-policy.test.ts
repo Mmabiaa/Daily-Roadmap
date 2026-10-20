@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   FAILURE_WINDOW_MS,
   MAX_FAILURES,
+  MAX_IP_FAILURES,
   accountKey,
   ipKey,
   isWindowExpired,
@@ -37,20 +38,36 @@ test('an account is never locked for longer than an hour', () => {
   assert.equal(SCOPE_CAP_MS.account, 1 * HOUR)
 })
 
-test('an IP lock keeps growing, but never past a day', () => {
-  assert.equal(lockDurationMs(9, 'ip'), 2 * HOUR)
-  assert.equal(lockDurationMs(10, 'ip'), 4 * HOUR)
-  assert.equal(lockDurationMs(11, 'ip'), 8 * HOUR)
-  assert.equal(lockDurationMs(12, 'ip'), 16 * HOUR)
-  assert.equal(lockDurationMs(13, 'ip'), 24 * HOUR)
-  for (const failures of [14, 30, 500]) {
-    assert.equal(lockDurationMs(failures, 'ip'), 24 * HOUR, `failures=${failures}`)
+test('an IP lock is shared by the whole address, so it needs many failures', () => {
+  for (const failures of [5, 10, MAX_IP_FAILURES - 1]) {
+    assert.equal(lockDurationMs(failures, 'ip'), 0, `failures=${failures}`)
   }
-  assert.equal(SCOPE_CAP_MS.ip, 24 * HOUR)
+  assert.equal(lockDurationMs(MAX_IP_FAILURES, 'ip'), 1 * HOUR)
+  for (const failures of [31, 60, 500]) {
+    assert.equal(lockDurationMs(failures, 'ip'), 1 * HOUR, `failures=${failures}`)
+  }
 })
 
-test('an IP is allowed to be locked longer than the account it is attacking', () => {
-  assert.ok(lockDurationMs(12, 'ip') > lockDurationMs(12, 'account'))
+test('one careless account locks itself without locking its whole network', () => {
+  // Five wrong PINs: the account waits a minute, the shared address is untouched.
+  assert.equal(lockDurationMs(MAX_FAILURES, 'account'), 1 * MINUTE)
+  assert.equal(lockDurationMs(MAX_FAILURES, 'ip'), 0)
+  assert.ok(MAX_IP_FAILURES > MAX_FAILURES * 4)
+})
+
+test('no scope is ever locked for longer than an hour', () => {
+  assert.equal(SCOPE_CAP_MS.account, 1 * HOUR)
+  assert.equal(SCOPE_CAP_MS.ip, 1 * HOUR)
+  for (const failures of [9, 12, 30, 60, 500]) {
+    assert.equal(lockDurationMs(failures, 'account'), 1 * HOUR, `account failures=${failures}`)
+  }
+  for (const failures of [MAX_IP_FAILURES, 60, 500]) {
+    assert.equal(lockDurationMs(failures, 'ip'), 1 * HOUR, `ip failures=${failures}`)
+  }
+})
+
+test('the account and IP bucket keys never collide', () => {
+  assert.notEqual(accountKey('203.0.113.7'), ipKey('203.0.113.7'))
 })
 
 test('the counting window goes stale after fifteen minutes', () => {

@@ -169,14 +169,22 @@ concurrent requests, and the TTL indexes on `pin_resets.expiresAt` and
 
 ## Sign-in throttling
 
-Five failures inside fifteen minutes start a lock, and each further failure
-extends it: 1m, 5m, 15m, 1h, then doubling. An **account** is never locked for
-more than an hour, so wrong guesses cannot keep a real user out for a day; an
-**IP** is capped at 24 hours. Locked callers get `429` with a `Retry-After`
-header. A correct PIN clears the account's failures, and a completed PIN reset
-clears them too, so a reset is never blocked by the sign-in lock. Unknown
-usernames pay for a bcrypt compare as well, so the reply time does not reveal
-whether an account exists.
+Five failed attempts inside fifteen minutes start a lock on the **account**, and
+each further failure extends it: 1m, 5m, 15m, 1h, then doubling.
+
+An **IP address** is counted separately and much more leniently, because a
+campus, office or mobile network puts many people behind one address: it locks
+only after 30 failed attempts in fifteen minutes, counted across *all* accounts
+from that address. Successful sign-ins are never recorded, and they never clear
+the IP bucket, so one valid account cannot be used to reset the counter and
+carry on guessing at other accounts.
+
+Every lock — account or IP — is capped at one hour. A day-long IP lock would let
+anyone keep a whole campus out of their own accounts long after the guessing
+stopped. Locked callers get `429` with a `Retry-After` header. A correct PIN
+clears the account's failures, and a completed PIN reset clears them too, so a
+reset is never blocked by the sign-in lock. Unknown usernames pay for a bcrypt
+compare as well, so the reply time does not reveal whether an account exists.
 
 Per-IP limiting needs `TRUST_PROXY_HEADERS=true`, because the header is
 otherwise client-controlled. When it is off, or the header is missing or not a
