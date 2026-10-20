@@ -6,6 +6,8 @@
  * `lib/timezone.ts`). Everything here is pure, so it can be tested directly.
  */
 
+import { days, type Day } from './schedule.ts'
+
 /** 24-hour `HH:MM`. */
 export const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
 
@@ -25,6 +27,20 @@ export function isTime(value: unknown): value is string {
 
 export function isDate(value: unknown): value is string {
   return typeof value === 'string' && DATE_PATTERN.test(value)
+}
+
+/**
+ * The weekday a `YYYY-MM-DD` date falls on.
+ *
+ * A calendar date's weekday is the same everywhere, so this is deliberately
+ * zone-free: the caller has already worked out which date it is on the user's
+ * clock (`todayIn`), and re-deriving it here would only invite the two to
+ * disagree near midnight.
+ */
+export function weekdayOf(date: string): Day {
+  const [year, month, day] = date.split('-').map(Number)
+  const jsDay = new Date(Date.UTC(year, month - 1, day)).getUTCDay() // 0 = Sunday
+  return days[(jsDay + 6) % 7]
 }
 
 /** Minutes after local midnight. */

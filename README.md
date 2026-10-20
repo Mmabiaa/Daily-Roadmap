@@ -203,7 +203,7 @@ app/
   forgot-pin/     PIN reset page (request code -> set new PIN)
   styles/         Design tokens and stylesheets (01..08)
 components/       UI components (AppShell, views, modals)
-lib/              Models, auth, mailer, MongoDB client, seed, OpenAPI spec
+lib/              Models, auth, mailer, MongoDB client, seed, schedule resolver, OpenAPI spec
 proxy.ts          Route protection (pages + API)
 public/           Icons, manifest and service worker
 ```
