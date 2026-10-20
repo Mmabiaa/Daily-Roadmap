@@ -2,6 +2,7 @@ import { getDb, ensureIndexes } from './mongodb'
 import { hashPin, normalizeEmail } from './auth'
 import { schedule, days, Day } from './schedule'
 import { NEW_PIN_PATTERN, NEW_PIN_RULE } from './pin'
+import { normalizeTimeZone } from './timezone'
 
 export async function seedDatabase() {
   const db = await getDb()
@@ -10,6 +11,8 @@ export async function seedDatabase() {
   const username = process.env.ADMIN_USERNAME || 'admin'
   const pin = process.env.ADMIN_PIN
   const email = process.env.ADMIN_EMAIL ? normalizeEmail(process.env.ADMIN_EMAIL) : undefined
+  // The admin's own wall clock, so its "today" matches the day it is living in.
+  const timezone = normalizeTimeZone(process.env.ADMIN_TIMEZONE)
 
   // Refuse to run without a real PIN. A seeded account must never fall back to a
   // well-known default, because that account is reachable from the sign-in page.
@@ -30,6 +33,7 @@ export async function seedDatabase() {
       username,
       ...(email ? { email } : {}),
       pinHash: await hashPin(pin),
+      timezone,
       createdAt: new Date(),
     })
     adminId = result.insertedId.toString()
@@ -82,5 +86,12 @@ export async function seedDatabase() {
     } catch (error) {
       console.warn('⚠ Could not attach ADMIN_EMAIL (already used by another account?)', error)
     }
+  }
+
+  // 5. Same for the zone: filled in only where the account has none, so a value
+  //    set later is never overwritten by a redeploy.
+  if (existing && process.env.ADMIN_TIMEZONE && !existing.timezone) {
+    await db.collection('users').updateOne({ _id: existing._id }, { $set: { timezone } })
+    console.log(`✓ Set the admin timezone to ${timezone}`)
   }
 }

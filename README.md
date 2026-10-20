@@ -72,6 +72,7 @@ cp .env.example .env.local
 | `ADMIN_USERNAME` | no       | Username for the first user created by `/api/seed`.     |
 | `ADMIN_PIN`      | to seed  | **6–8 digit** PIN for that first user. The seed refuses to run without it, so the account is never created with a default PIN. |
 | `ADMIN_EMAIL`    | no       | Email for that first user, so it can reset its PIN.     |
+| `ADMIN_TIMEZONE` | no       | IANA zone for that first user, e.g. `Europe/London`. Falls back to UTC. New sign-ups send their browser's zone instead. |
 | `SEED_SECRET`    | to seed in production | Guards `/api/seed`. Sent by the caller in the `x-seed-key` header. Without it, seeding is disabled in production. |
 | `TRUST_PROXY_HEADERS` | on a proxied host | Set to `true` only when a proxy you control sets the IP header. Without it, per-IP sign-in throttling is skipped rather than trusting a spoofable value. |
 | `TRUSTED_IP_HEADER` | no    | Which header carries the client IP. Defaults to `x-forwarded-for` (first entry). |
@@ -197,8 +198,8 @@ public/           Icons, manifest and service worker
 ## Deployment (Vercel)
 
 1. Add `MONGODB_URI`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PIN` (6–8 digits),
-   `ADMIN_EMAIL`, `SEED_SECRET`, `TRUST_PROXY_HEADERS=true` and the `SMTP_*`
-   variables as project environment variables.
+   `ADMIN_EMAIL`, `ADMIN_TIMEZONE`, `SEED_SECRET`, `TRUST_PROXY_HEADERS=true` and
+   the `SMTP_*` variables as project environment variables.
 2. Deploy. New or changed environment variables only apply after a fresh
    deployment, so redeploy when you change them.
 3. Seed once with the secret in the header:

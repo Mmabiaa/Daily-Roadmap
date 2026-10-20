@@ -19,6 +19,8 @@ export const UserSchema = z.object({
   username: z.string().min(1),
   email: z.string().optional(),
   pinHash: z.string(),
+  /** IANA zone the account's wall-clock times belong to; older accounts have none. */
+  timezone: z.string().optional(),
 })
 
 export type User = z.infer<typeof UserSchema>
@@ -41,6 +43,8 @@ export const SignUpSchema = z.object({
   username: z.string().trim().regex(USERNAME_PATTERN, 'Use 3–32 letters, numbers, dot, dash or underscore'),
   email: z.email('Enter a valid email address'),
   pin: NewPinSchema,
+  /** The browser's zone, so the account's wall-clock times mean its own time. */
+  timezone: z.string().optional(),
 })
 
 export type SignUpInput = z.infer<typeof SignUpSchema>

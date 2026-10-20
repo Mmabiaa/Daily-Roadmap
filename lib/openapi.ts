@@ -110,7 +110,7 @@ export const openApiDocument = {
         description:
           'Creates the account and sets the `auth-token` cookie. Usernames and emails are unique ' +
           '(enforced by database indexes), so a racing duplicate sign-up returns 409. New accounts ' +
-          'start with an empty schedule.',
+          'start with an empty schedule, and store the wall-clock zone their times belong to.',
         security: [],
         requestBody: jsonBody({ $ref: '#/components/schemas/SignUpRequest' }),
         responses: {
@@ -379,6 +379,7 @@ export const openApiDocument = {
           username: { type: 'string', example: 'mmabiaa', description: '3–32 letters, numbers, dot, dash or underscore.' },
           email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Used to send PIN reset codes.' },
           pin: { type: 'string', example: '482915', description: '6–8 digits, and not trivially guessable (no repeated single digit, no consecutive run, not a common PIN).' },
+          timezone: { type: 'string', example: 'Europe/London', description: 'IANA zone the account\'s wall-clock times belong to. Sent by the sign-up form from the browser; an unknown value falls back to UTC.' },
         },
         required: ['username', 'email', 'pin'],
       },

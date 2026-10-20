@@ -29,7 +29,14 @@ export default function SignUpPage() {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, pin }),
+        body: JSON.stringify({
+          username,
+          email,
+          pin,
+          // The plan is wall-clock time, so the account needs to know which
+          // zone those times belong to. The server falls back to UTC.
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }),
         credentials: 'include',
       })
 
