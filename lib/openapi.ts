@@ -282,7 +282,8 @@ export const openApiDocument = {
           'only that day changes; `future` splits the series at `date`, keeping earlier days ' +
           '(and their ticks) as they were. Editing on or before the series’ first day replaces ' +
           'the series. A `fixed` overlap returns 409 naming the conflicting event. New or edited ' +
-          'events must have `end !== start`.',
+          'events must have `end !== start`. A series edit is applied in one transaction: if any ' +
+          'part of it fails, the series is left exactly as it was.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventUpdate' }),
         responses: {
           200: {

@@ -1,4 +1,4 @@
-import { ObjectId, type Db } from 'mongodb'
+import { ObjectId, type ClientSession, type Db } from 'mongodb'
 
 import { ApiError } from './errors.ts'
 import type {
@@ -10,7 +10,7 @@ import type {
   Repeat,
   Source,
 } from './models.ts'
-import { ensureIndexes, getDb } from './mongodb.ts'
+import getClientPromise, { ensureIndexes, getDb } from './mongodb.ts'
 import {
   appliesOn,
   conflicts,
@@ -42,6 +42,29 @@ const COMPLETIONS = 'completions'
 
 /** How many events one account may keep. */
 export const MAX_EVENTS = 300
+
+/**
+ * Runs `work` in a single transaction, so its writes land together or not at
+ * all. Series edits and deletes touch more than one document — an event plus
+ * its completions, or an old event plus its replacement — and a half-applied
+ * one would leave a tick pointing at a block that no longer exists.
+ *
+ * The driver retries `work` on a transient error, so it must be safe to repeat:
+ * the callbacks here only ever re-run the same writes.
+ */
+async function withTransaction<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+  const client = await getClientPromise()
+  const session = client.startSession()
+  try {
+    let result: T | undefined
+    await session.withTransaction(async () => {
+      result = await work(session)
+    })
+    return result as T
+  } finally {
+    await session.endSession()
+  }
+}
 
 /** How far back the streak will look for a run, so a bad date cannot hang it. */
 const STREAK_LOOKBACK_DAYS = 400
@@ -299,24 +322,29 @@ export async function updateEvent(
   const firstDay = event.repeat.type === 'once' ? event.repeat.date : event.startDate
   const wholeSeries = event.repeat.type === 'once' || (firstDay !== undefined && date <= firstDay)
 
-  if (wholeSeries) {
-    await db.collection(COMPLETIONS).deleteMany({ ownerId, eventId: id })
-    await db.collection(EVENTS).deleteOne({ _id, ownerId })
-  } else {
-    await db.collection(EVENTS).updateOne(
-      { _id, ownerId },
-      {
-        $set: {
-          endDate: dayBefore(date),
-          exceptions: event.exceptions.filter((entry) => entry.date < date),
-          updatedAt: new Date(),
+  const insertedId = await withTransaction(async (session) => {
+    if (wholeSeries) {
+      await db.collection(COMPLETIONS).deleteMany({ ownerId, eventId: id }, { session })
+      await db.collection(EVENTS).deleteOne({ _id, ownerId }, { session })
+    } else {
+      await db.collection(EVENTS).updateOne(
+        { _id, ownerId },
+        {
+          $set: {
+            endDate: dayBefore(date),
+            exceptions: event.exceptions.filter((entry) => entry.date < date),
+            updatedAt: new Date(),
+          },
         },
-      }
-    )
-  }
+        { session }
+      )
+    }
 
-  const result = await db.collection(EVENTS).insertOne(stored)
-  return serializeEvent(normalizeLegacyEvent({ ...stored, _id: result.insertedId } as any))
+    const result = await db.collection(EVENTS).insertOne(stored, { session })
+    return result.insertedId
+  })
+
+  return serializeEvent(normalizeLegacyEvent({ ...stored, _id: insertedId } as any))
 }
 
 /**
@@ -371,8 +399,10 @@ export async function deleteEvent(
     }
   }
 
-  await db.collection(COMPLETIONS).deleteMany({ ownerId, eventId: id })
-  await db.collection(EVENTS).deleteOne({ _id, ownerId })
+  await withTransaction(async (session) => {
+    await db.collection(COMPLETIONS).deleteMany({ ownerId, eventId: id }, { session })
+    await db.collection(EVENTS).deleteOne({ _id, ownerId }, { session })
+  })
   return { deleted: true, skipped: false, truncated: false }
 }
 

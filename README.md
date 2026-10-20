@@ -119,10 +119,13 @@ npm run typecheck # tsc --noEmit; the build runs type checking too
 
 `npm test` also runs the database-backed suite in
 [`lib/integration.test.ts`](./lib/integration.test.ts), which starts a real
-`mongod` through [`mongodb-memory-server`](https://github.com/typegoose/mongodb-memory-server)
+single-member MongoDB **replica set** through
+[`mongodb-memory-server`](https://github.com/typegoose/mongodb-memory-server)
 (a dev dependency) and points `MONGODB_URI` at it, so the indexes, the atomic
-counters and the ownership rules are exercised for real rather than mocked. The
-binary is downloaded on first run; if that is not possible, set
+counters, the ownership rules and the transactions that series edits run in are
+exercised for real rather than mocked. A replica set — not a standalone — is
+what makes transactions available, and production (Atlas) is a replica set too.
+The binary is downloaded on first run; if that is not possible, set
 `MONGOMS_SYSTEM_BINARY` to a `mongod` already on the machine, or
 `MONGOMS_VERSION` to pin a different build. The suite **fails loudly** if the
 database cannot be started — it is never silently skipped. Set

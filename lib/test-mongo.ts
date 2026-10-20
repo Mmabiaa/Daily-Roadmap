@@ -1,5 +1,5 @@
 import { MongoClient, type Db } from 'mongodb'
-import { MongoMemoryServer } from 'mongodb-memory-server'
+import { MongoMemoryReplSet } from 'mongodb-memory-server'
 
 import getClientPromise from './mongodb.ts'
 
@@ -11,6 +11,11 @@ import getClientPromise from './mongodb.ts'
  * exactly one document — are properties of MongoDB itself. An in-memory fake
  * would only assert that the fake behaves the way it was written, so these
  * tests run a real server.
+ *
+ * It is a *replica set*, not a standalone, because series edits and deletes run
+ * inside a transaction and transactions need one. A single member is enough:
+ * the point is the oplog, not the redundancy. Production is Atlas, which is a
+ * replica set too, so this is the shape the code really runs against.
  *
  * If a server cannot be started the tests must fail: a suite that silently
  * skips is worse than no suite, because it looks like a pass. Set
@@ -37,8 +42,8 @@ export type TestDb = {
 const COLLECTIONS = ['users', 'events', 'completions', 'progress', 'rate_limits', 'pin_resets']
 
 /**
- * Starts a local mongod on a random port and points the app's own client at it,
- * so `getDb()` and everything built on it talk to this server.
+ * Starts a one-member replica set on a random port and points the app's own
+ * client at it, so `getDb()` and everything built on it talk to this server.
  */
 export async function startTestDb(): Promise<TestDb> {
   const systemBinary = process.env.MONGOMS_SYSTEM_BINARY
@@ -48,12 +53,16 @@ export async function startTestDb(): Promise<TestDb> {
     ? { systemBinary }
     : { version: process.env.MONGOMS_VERSION ?? SERVER_VERSION }
 
-  const server = await MongoMemoryServer.create({
+  const replSet = await MongoMemoryReplSet.create({
     binary,
-    instance: { launchTimeout: 120_000 },
+    replSet: { count: 1, name: 'rs0', storageEngine: 'wiredTiger' },
+    // `enableTestCommands` lets a test inject a one-off failure with
+    // `configureFailPoint`, which is how the rollback of a half-written series
+    // is proved rather than assumed.
+    instanceOpts: [{ launchTimeout: 120_000, args: ['--setParameter', 'enableTestCommands=1'] }],
   })
 
-  const uri = server.getUri()
+  const uri = replSet.getUri()
   process.env.MONGODB_URI = uri
 
   const client = await MongoClient.connect(uri)
@@ -69,7 +78,7 @@ export async function startTestDb(): Promise<TestDb> {
       // event loop alive and the test run would never exit.
       await (await getClientPromise()).close()
       await client.close()
-      await server.stop()
+      await replSet.stop()
     },
   }
 }

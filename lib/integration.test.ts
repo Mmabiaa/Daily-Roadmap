@@ -338,6 +338,100 @@ describe('database-backed behaviour', { skip: skip && 'SKIP_INTEGRATION=1 is set
     })
   })
 
+  describe('a series write that fails half way changes nothing', () => {
+    /**
+     * A unique index on `(ownerId, title)` gives the tests a constraint to
+     * break: writing a second event with a title that is already taken raises
+     * a duplicate-key error *inside* the transaction, after the earlier writes
+     * have run. Anything those wrote must be undone.
+     */
+    async function withUniqueTitleIndex(run: () => Promise<void>) {
+      await db.collection('events').createIndex({ ownerId: 1, title: 1 }, { unique: true })
+      try {
+        await run()
+      } finally {
+        await db.collection('events').dropIndex('ownerId_1_title_1')
+      }
+    }
+
+    const isDuplicateKey = (error: unknown) => (error as { code?: number }).code === 11000
+
+    it('rolls a whole-series replace back when the replacement cannot be written', async () => {
+      await withUniqueTitleIndex(async () => {
+        const doomed = await createEvent(owner, weekly({ title: 'Doomed' }))
+        await setCompletion(owner, { date: MONDAY, eventId: doomed._id, done: true })
+        await createEvent(owner, weekly({ title: 'Taken' }))
+
+        // Editing from the series' first day deletes the event and its
+        // completion, then inserts the replacement — whose title collides.
+        await assert.rejects(
+          () =>
+            updateEvent(owner, doomed._id, {
+              ...weekly({ title: 'Taken' }),
+              scope: 'future',
+              date: MONDAY,
+            }),
+          isDuplicateKey
+        )
+
+        assert.equal(
+          await db.collection('events').countDocuments({ ownerId: owner, title: 'Doomed' }),
+          1
+        )
+        assert.equal(
+          await db.collection('completions').countDocuments({ ownerId: owner, eventId: doomed._id }),
+          1
+        )
+      })
+    })
+
+    it('rolls a split back when the new event cannot be written', async () => {
+      await withUniqueTitleIndex(async () => {
+        const original = await createEvent(owner, weekly({ title: 'Original' }))
+        // A different weekday, so the split day shows only the original.
+        await createEvent(owner, weekly({ title: 'Taken', repeat: { type: 'weekly', days: ['Tue'] } }))
+
+        await assert.rejects(
+          () =>
+            updateEvent(owner, original._id, {
+              ...weekly({ title: 'Taken', start: '10:00', end: '11:00' }),
+              scope: 'future',
+              date: SPLIT_MONDAY,
+            }),
+          isDuplicateKey
+        )
+
+        // The truncation is undone with the insert, so the series still runs
+        // as far as it did before.
+        const split = await getDayView(owner, SPLIT_MONDAY)
+        assert.equal(split.blocks.length, 1)
+        assert.equal(split.blocks[0].title, 'Original')
+        assert.equal(split.blocks[0].start, '09:00')
+      })
+    })
+
+    it('rolls a delete back when the write after the completions fails', async () => {
+      const event = await createEvent(owner, weekly())
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+
+      // Skip the completion delete and fail the event delete: the completions
+      // are already gone by then, so only a real rollback brings them back.
+      await db.admin().command({
+        configureFailPoint: 'failCommand',
+        mode: { skip: 1, times: 1 },
+        data: { failCommands: ['delete'], errorCode: 2, errmsg: 'injected failure' },
+      })
+      try {
+        await assert.rejects(() => deleteEvent(owner, event._id))
+      } finally {
+        await db.admin().command({ configureFailPoint: 'failCommand', mode: 'off' })
+      }
+
+      assert.equal(await db.collection('events').countDocuments({ _id: new ObjectId(event._id) }), 1)
+      assert.equal(await db.collection('completions').countDocuments({ ownerId: owner }), 1)
+    })
+  })
+
   describe('the per-account event cap', () => {
     it('refuses the event after the cap is reached', async () => {
       await db.collection('events').insertMany(
