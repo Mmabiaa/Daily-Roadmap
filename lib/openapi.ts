@@ -21,6 +21,16 @@ const categories = [
 
 const kinds = ['fixed', 'flexible']
 
+/**
+ * The one place the streak rule is written down, used by both the day and the
+ * week view so the two cannot describe it differently.
+ */
+const STREAK_DESCRIPTION =
+  'Consecutive days whose essential blocks are all done, counted back from the most recent day. ' +
+  'A day with nothing essential is stepped over rather than counted or broken. An unfinished ' +
+  '*today* neither counts nor breaks the run, so a day in progress is not held against you; the ' +
+  'run behind it still counts. The walk never reaches back before the account’s first event.'
+
 const errorResponse = {
   description: 'Error',
   content: {
@@ -636,7 +646,7 @@ export const openApiDocument = {
           today: { type: 'string', example: '2026-10-20', description: 'Today in the account’s zone.' },
           date: { type: 'string', example: '2026-10-19' },
           blocks: { type: 'array', items: { $ref: '#/components/schemas/BlockView' } },
-          streak: { type: 'integer', description: 'Consecutive days with every essential block done.' },
+          streak: { type: 'integer', description: STREAK_DESCRIPTION },
         },
         required: ['timezone', 'today', 'date', 'blocks', 'streak'],
       },
@@ -657,7 +667,7 @@ export const openApiDocument = {
               required: ['date', 'blocks'],
             },
           },
-          streak: { type: 'integer' },
+          streak: { type: 'integer', description: STREAK_DESCRIPTION },
         },
         required: ['timezone', 'today', 'weekStart', 'days', 'streak'],
       },

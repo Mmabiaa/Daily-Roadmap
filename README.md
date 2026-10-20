@@ -200,6 +200,12 @@ ticked twice, and the TTL indexes on `pin_resets.expiresAt` and
 - **Per-date changes** — `exceptions` are written by the server, never sent by
   the client: a `scope: 'this'` edit or a one-day skip adds one. An event may
   carry at most **500** of them, past which the edit is refused with a `400`.
+- **Streak** — the number of days in a row whose *essential* blocks are all
+  done, counted back from the most recent day. A day with nothing essential is
+  stepped over rather than counted or broken. **An unfinished today neither
+  counts nor breaks the run**: a day in progress is not held against you, and
+  the days behind it still count. The walk never reaches back before the
+  account's first event.
 
 ## Sign-in throttling
 

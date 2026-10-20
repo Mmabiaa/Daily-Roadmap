@@ -7,11 +7,12 @@ import { ApiError } from './errors.ts'
 import { ensureIndexes, getDb } from './mongodb.ts'
 import { accountKey, ipKey } from './rate-limit-policy.ts'
 import { recordFailure } from './rate-limit.ts'
-import type { EventInput } from './models.ts'
+import type { DayName, EventInput } from './models.ts'
 import { addDays } from './schedule-time.ts'
 import {
   MAX_EVENTS,
   MAX_EXCEPTIONS,
+  computeStreak,
   createEvent,
   deleteEvent,
   getDayView,
@@ -362,6 +363,88 @@ describe('database-backed behaviour', { skip: skip && 'SKIP_INTEGRATION=1 is set
       })
       assert.equal(await db.collection('events').countDocuments({ ownerId: owner }), 0)
       assert.equal(await db.collection('completions').countDocuments({ ownerId: owner }), 0)
+    })
+  })
+
+  describe('the streak', () => {
+    // 2026-10-19 is a Monday; 21 is the Wednesday of that first week.
+    const TODAY = '2026-10-21'
+    const FIRST_WEEK = ['2026-10-19', '2026-10-20', '2026-10-21']
+    const WEEK_BEFORE = ['2026-10-12', '2026-10-13', '2026-10-14']
+
+    /** An essential event on the given weekdays. `null` means "no first day". */
+    async function essential(
+      days: DayName[] = ['Mon', 'Tue', 'Wed'],
+      startDate: string | null = MONDAY
+    ) {
+      return createEvent(owner, {
+        title: 'Study',
+        category: 'study',
+        kind: 'flexible',
+        start: '09:00',
+        end: '10:00',
+        repeat: { type: 'weekly', days },
+        essential: true,
+        ...(startDate ? { startDate } : {}),
+      })
+    }
+
+    const tick = (date: string, eventId: string) =>
+      setCompletion(owner, { date, eventId, done: true })
+
+    const streakNow = () => computeStreak(owner, 'UTC', TODAY)
+
+    it('is zero for an account that has made no plan', async () => {
+      assert.equal(await streakNow(), 0)
+    })
+
+    it('counts a run of complete essential days', async () => {
+      const event = await essential()
+      for (const date of FIRST_WEEK) await tick(date, event._id)
+
+      assert.equal(await streakNow(), 3)
+    })
+
+    it('stops at the first essential day left unfinished', async () => {
+      const event = await essential()
+      // Tuesday is missed, so only Wednesday counts.
+      await tick('2026-10-19', event._id)
+      await tick('2026-10-21', event._id)
+
+      assert.equal(await streakNow(), 1)
+    })
+
+    it('steps over a day with no essential block', async () => {
+      const event = await essential(['Mon', 'Wed'])
+      await tick('2026-10-19', event._id)
+      await tick('2026-10-21', event._id)
+
+      assert.equal(await streakNow(), 2)
+    })
+
+    it('skips an unfinished today without breaking the days behind it', async () => {
+      const event = await essential()
+      // Monday and Tuesday are done; today (Wednesday) is still in progress.
+      await tick('2026-10-19', event._id)
+      await tick('2026-10-20', event._id)
+
+      assert.equal(await streakNow(), 2)
+    })
+
+    it('never counts back before the account created its first event', async () => {
+      // A weekly event with no start date applies to every matching weekday,
+      // including before it existed, so only the floor keeps the walk honest.
+      const event = await essential(['Mon', 'Tue', 'Wed'], null)
+      await db
+        .collection('events')
+        .updateOne(
+          { _id: new ObjectId(event._id), ownerId: owner },
+          { $set: { createdAt: new Date('2026-10-19T00:00:00Z') } }
+        )
+
+      for (const date of [...WEEK_BEFORE, ...FIRST_WEEK]) await tick(date, event._id)
+
+      assert.equal(await streakNow(), 3)
     })
   })
 
