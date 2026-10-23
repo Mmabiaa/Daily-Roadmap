@@ -114,10 +114,6 @@ export function TodayView({
             )}
 
             <section className="energy-card" aria-label="Energy check-in">
-                <div>
-                    <strong>How&rsquo;s your energy?</strong>
-                    <p className="energy-copy">A quick check-in, just for you.</p>
-                </div>
                 <div className="energy-options" role="group" aria-label="Today's energy">
                     {LEVELS.map((level) => (
                         <button
