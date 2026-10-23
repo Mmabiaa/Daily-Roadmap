@@ -4,6 +4,7 @@ import { hashPin, normalizeEmail, setSession } from '@/lib/auth'
 import { generateToken } from '@/lib/session'
 import { normalizeTimeZone } from '@/lib/timezone'
 import { DEFAULT_PROFILE } from '@/lib/profile'
+import { isMailConfigured, sendWelcomeEmail } from '@/lib/mailer'
 import { SignUpSchema } from '@/lib/models'
 
 const DUPLICATE_KEY = 11000
@@ -69,6 +70,17 @@ export async function POST(request: Request) {
     })
 
     await setSession(generateToken(result.insertedId.toString(), 0))
+
+    // A welcome email is a courtesy, not part of the account. If the mail
+    // server is unhappy the sign-up has still succeeded, so the failure is
+    // logged and swallowed rather than turning a good account into a 500.
+    if (isMailConfigured()) {
+      try {
+        await sendWelcomeEmail(email, username)
+      } catch (error) {
+        console.error('Welcome email failed:', error)
+      }
+    }
 
     return NextResponse.json({ success: true, username }, { status: 201 })
   } catch (error: any) {

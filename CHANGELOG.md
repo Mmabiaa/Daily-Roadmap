@@ -58,6 +58,8 @@ what is new. Kept deliberately short: one line per item, plain words.
       plus the Minimum day explained
 - [x] `app/styles/09-screens.css` — styles for the new screens, in the app's tokens
 - [x] `lib/preferences.ts` — shared labels and small rules the screens read
+- [x] **Email** — PIN reset codes and a welcome mail on sign-up, both rendered in
+      the app's own palette and card layout with a plain-text twin (`lib/mailer.ts`)
 
 ### Modified
 
@@ -66,7 +68,10 @@ what is new. Kept deliberately short: one line per item, plain words.
 - [x] `lib/schedule-service.ts` — day/week views now carry `comebacks`
 - [x] `lib/mongodb.ts` — indexes for `profiles` and `timetable_shares`
 - [x] `lib/openapi.ts` — documented the new endpoints
-- [x] `app/api/auth/signup/route.ts` — a new account gets a profile with `onboarded: false`
+- [x] `app/api/auth/signup/route.ts` — a new account gets a profile with `onboarded: false`,
+      and a welcome email; a send failure is logged and never fails the sign-up
+- [x] `lib/mailer.ts` — one shared, themed layout behind every message, so a new
+      email (reminders, security notices) is a heading plus a body away
 - [x] `components/AppShell.tsx` — profile load, energy, wellbeing, reminders, settings view
 - [x] `components/BottomNav.tsx` / `components/Topbar.tsx` — five tabs incl. Settings
 - [x] `components/Guide.tsx` — per-account rules instead of the admin-only bundle
@@ -96,6 +101,10 @@ what is new. Kept deliberately short: one line per item, plain words.
       `/signin`, and sign-in answers with `onboarded` so the client resumes the
       flow. A brand-new sign-up still goes straight to `/onboarding`, and an
       account that already used the app is never sent there.
+- [x] Reset codes that never arrived: the mail was sent to the address stored on
+      the account, which was misspelled. Gmail also accepts a `From:` it does not
+      own with a `250 OK` and the recipient then drops it, so `.env.example` now
+      says to keep `SMTP_FROM` on the authenticated account.
 
 ---
 
