@@ -22,8 +22,11 @@ import {
   resolveDay,
   skippedOn,
   streakFrom,
+  type BlockView,
   type DayBlock,
+  type DayView,
   type StreakDay,
+  type WeekView,
 } from './resolver.ts'
 import { addDays, dayBefore, isDate, overlaps, weekStartOf } from './schedule-time.ts'
 import { normalizeTimeZone, todayIn } from './timezone.ts'
@@ -107,25 +110,6 @@ export type SerializedEvent = {
   exceptions: EventDoc['exceptions']
   source: Source
   note?: string
-}
-
-/** A resolved block plus whether it has been ticked off. */
-export type BlockView = DayBlock & { done: boolean }
-
-export type DayView = {
-  timezone: string
-  today: string
-  date: string
-  blocks: BlockView[]
-  streak: number
-}
-
-export type WeekView = {
-  timezone: string
-  today: string
-  weekStart: string
-  days: { date: string; blocks: BlockView[] }[]
-  streak: number
 }
 
 function serializeEvent(event: EventDoc): SerializedEvent {

@@ -1,52 +1,35 @@
 'use client'
 
 import { Flame } from 'lucide-react'
-import { Block, Day } from '@/lib/schedule'
-import { keyFor } from '@/lib/utils'
+import type { BlockView, DayBlock } from '@/lib/resolver'
 import { BlockRow } from './BlockRow'
 import { Ring } from './Ring'
 
-type Checks = Record<string, boolean>
-
 type Props = {
-    date: string
-    activeDay: Day
-    blocks: Block[]
-    shown: Block[]
-    checks: Checks
+    blocks: BlockView[]
+    shown: BlockView[]
     completion: number
     streak: number
-    currentIndex: number
-    nextBlock?: Block
-    minsToNext: number
+    /** The block happening now, the next to start, and minutes until now ends. */
+    current: DayBlock | null
+    next: DayBlock | null
+    minutesLeft: number | null
     minimum: boolean
     setMinimum: (v: boolean) => void
     onToggle: (i: number) => void
-    onEdit: (block: Block) => void
+    onEdit: (block: BlockView) => void
     /** false during SSR + first client render — hides time-sensitive text */
     mounted?: boolean
 }
 
-/**
- * "2026-10-19" -> "Monday, October 19".
- * Parsed and formatted in local time with a fixed locale, so server and
- * client always produce the same string (no hydration mismatch).
- */
-function formatDate(date: string) {
-    const d = new Date(`${date}T00:00:00`)
-    if (Number.isNaN(d.getTime())) return 'Today'
-    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-}
-
 export function TodayView({
-    date, activeDay, blocks, shown, checks, completion, streak,
-    currentIndex, nextBlock, minsToNext, minimum, setMinimum, onToggle, onEdit,
+    blocks, shown, completion, streak,
+    current, next, minutesLeft, minimum, setMinimum, onToggle, onEdit,
     mounted = true,
 }: Props) {
-    const doneCount = blocks.filter((b) => checks[keyFor(date, activeDay, b.time)]).length
+    const doneCount = blocks.filter((b) => b.done).length
     const remaining = blocks.length - doneCount
     const allDone = blocks.length > 0 && remaining === 0
-    const current = currentIndex >= 0 ? blocks[currentIndex] : undefined
 
     return (
         <main className="content">
@@ -74,14 +57,14 @@ export function TodayView({
                             <span className="now-strip-label">Happening now</span>
                             <strong className="now-strip-title">{current.title}</strong>
                             <span className="now-strip-next">
-                                {nextBlock
-                                    ? `Next: ${nextBlock.title}`
+                                {next
+                                    ? `Next: ${next.title}`
                                     : 'This is the last block of the day'}
                             </span>
                         </div>
-                        {nextBlock && (
+                        {minutesLeft !== null && minutesLeft > 0 && (
                             <div className="now-strip-time">
-                                <strong>{minsToNext}</strong>
+                                <strong>{minutesLeft}</strong>
                                 <span>min left</span>
                             </div>
                         )}
@@ -140,14 +123,12 @@ export function TodayView({
                         const i = blocks.indexOf(block)
                         return (
                             <BlockRow
-                                key={block.time}
+                                key={block.eventId}
                                 block={block}
-                                index={i}
-                                next={blocks[i + 1]}
-                                done={!!checks[keyFor(date, activeDay, block.time)]}
+                                done={block.done}
                                 onToggle={() => onToggle(i)}
-                                onEdit={block.id ? () => onEdit(block) : undefined}
-                                isNow={i === currentIndex}
+                                onEdit={() => onEdit(block)}
+                                isNow={current?.eventId === block.eventId}
                                 dim={minimum && !block.essential}
                             />
                         )

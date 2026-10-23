@@ -31,6 +31,31 @@ export type DayBlock = {
   source: Source
 }
 
+/** A resolved block plus whether it has been ticked off on its date. */
+export type BlockView = DayBlock & { done: boolean }
+
+/**
+ * The shapes `GET /api/events?date=` and `?week=` serve, and the shapes the
+ * views render. They live here, beside `DayBlock`, because this file is the
+ * one schedule module the browser imports — so a component never has to reach
+ * into the database-aware service just to name what it draws.
+ */
+export type DayView = {
+  timezone: string
+  today: string
+  date: string
+  blocks: BlockView[]
+  streak: number
+}
+
+export type WeekView = {
+  timezone: string
+  today: string
+  weekStart: string
+  days: { date: string; blocks: BlockView[] }[]
+  streak: number
+}
+
 /** A stored event as it comes back from the driver, before normalisation. */
 type RawEvent = Record<string, any>
 

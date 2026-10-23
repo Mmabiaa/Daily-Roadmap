@@ -1,17 +1,12 @@
 'use client'
 
-import { Block, Day, days, focus } from '@/lib/schedule'
-import { keyFor } from '@/lib/utils'
+import { Day, days, focus } from '@/lib/schedule'
+import type { BlockView } from '@/lib/resolver'
 import { BlockRow } from './BlockRow'
 
-type Checks = Record<string, boolean>
-
 type Props = {
-    date: string
-    activeDay: Day
-    blocks: Block[]
-    shown: Block[]
-    checks: Checks
+    blocks: BlockView[]
+    shown: BlockView[]
     selectedDay: Day
     setSelectedDay: (d: Day) => void
     classHours: number
@@ -20,11 +15,11 @@ type Props = {
     minimum: boolean
     setMinimum: (v: boolean) => void
     onToggle: (i: number) => void
-    onEdit: (block: Block) => void
+    onEdit: (block: BlockView) => void
 }
 
 export function WeekView({
-    date, activeDay, blocks, shown, checks,
+    blocks, shown,
     selectedDay, setSelectedDay, classHours, studyHours, essentialDone,
     minimum, setMinimum, onToggle, onEdit,
 }: Props) {
@@ -91,13 +86,11 @@ export function WeekView({
                         const i = blocks.indexOf(block)
                         return (
                             <BlockRow
-                                key={block.time}
+                                key={block.eventId}
                                 block={block}
-                                index={i}
-                                next={blocks[i + 1]}
-                                done={!!checks[keyFor(date, activeDay, block.time)]}
+                                done={block.done}
                                 onToggle={() => onToggle(i)}
-                                onEdit={block.id ? () => onEdit(block) : undefined}
+                                onEdit={() => onEdit(block)}
                                 isNow={false}
                             />
                         )
