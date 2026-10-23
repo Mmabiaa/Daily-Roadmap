@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react'
 import { Check, Pause, Play, Timer, X } from 'lucide-react'
-import { Block, categoryMeta } from '@/lib/schedule'
+import { categoryMeta } from '@/lib/schedule'
+import type { DayBlock } from '@/lib/resolver'
 import { formatTime, haptic } from '@/lib/utils'
 
 type Props = {
-    block: Block
+    block: DayBlock
     timer: number
     running: boolean
     onToggle: () => void
@@ -70,7 +71,7 @@ export function FocusMode({ block, timer, running, onToggle, onClose, onReset }:
 
                 <section className="focus-body">
                     <div className="focus-intro">
-                        <p className="focus-when">{formatTime(block.time)}</p>
+                        <p className="focus-when">{formatTime(block.start)}</p>
                         <h1 className="focus-title">{block.title}</h1>
                         {block.note && <p className="focus-note">{block.note}</p>}
                     </div>

@@ -1,15 +1,16 @@
 'use client'
 
-import { CalendarDays, CircleHelp, House, Users } from 'lucide-react'
+import { CalendarDays, CircleHelp, House, Settings as SettingsIcon, Users } from 'lucide-react'
 import { haptic } from '@/lib/utils'
 
-type View = 'today' | 'week' | 'review' | 'guide'
+type View = 'today' | 'week' | 'review' | 'guide' | 'settings'
 
 const items = [
     ['today', House, 'Today'],
     ['week', CalendarDays, 'Week'],
     ['review', Users, 'Review'],
     ['guide', CircleHelp, 'Guide'],
+    ['settings', SettingsIcon, 'Settings'],
 ] as const
 
 type Props = { view: View; setView: (v: View) => void }

@@ -19,6 +19,34 @@ const categories = [
   'sleep',
 ]
 
+const kinds = ['fixed', 'flexible']
+
+const personas = ['student', 'worker', 'freelancer', 'shift']
+
+const clocks = ['12', '24']
+
+const mustDos = ['wake', 'study', 'move', 'project', 'winddown', 'sleep']
+
+/**
+ * The one place the streak rule is written down, used by both the day and the
+ * week view so the two cannot describe it differently.
+ */
+const STREAK_DESCRIPTION =
+  'Consecutive days whose essential blocks are all done, counted back from the most recent day. ' +
+  'A day with nothing essential is stepped over rather than counted or broken. An unfinished ' +
+  '*today* neither counts nor breaks the run, so a day in progress is not held against you; the ' +
+  'run behind it still counts. The walk never reaches back before the account’s first event.'
+
+/**
+ * The comeback counter, written down once so the day and the week view can
+ * never describe it differently from the streak.
+ */
+const COMEBACKS_DESCRIPTION =
+  'How many times the account returned to its essentials after an unfinished one: each completed ' +
+  'essential day that follows an unfinished essential day counts once. Days with nothing ' +
+  'essential are ignored, so a rest day does not inflate the count, and the first counting day ' +
+  'is never a comeback.'
+
 const errorResponse = {
   description: 'Error',
   content: {
@@ -42,6 +70,21 @@ const jsonBody = (schema: Record<string, unknown>, required = true) => ({
   content: { 'application/json': { schema } },
 })
 
+const seedDescription =
+  'Creates the first account and gives it the starter schedule, once. Idempotent, and never ' +
+  'overwrites an existing PIN. Requires the `SEED_SECRET` value in the `x-seed-key` header; ' +
+  'without a configured secret the endpoint is disabled in production. A wrong or missing key ' +
+  'returns 404. `ADMIN_PIN` (6–8 digits) must be set, so the account is never created with a ' +
+  'default PIN.'
+
+const seedKeyHeader = {
+  name: 'x-seed-key',
+  in: 'header',
+  required: true,
+  description: 'The value of the server’s `SEED_SECRET` environment variable.',
+  schema: { type: 'string' },
+}
+
 export const openApiDocument = {
   openapi: '3.0.3',
   info: {
@@ -50,16 +93,21 @@ export const openApiDocument = {
     description:
       'API for the Daily Roadmap schedule app. Authentication is a signed JWT stored in the ' +
       'httpOnly `auth-token` cookie, so use "Try it out" from a signed-in browser session ' +
-      'to have requests authenticated automatically.',
+      'to have requests authenticated automatically. Events and progress are scoped to the ' +
+      'signed-in account and are never shared between users.',
   },
   servers: [
     { url: '/', description: 'Current origin' },
   ],
   tags: [
-    { name: 'Auth', description: 'Sign in, session check and sign out' },
-    { name: 'Events', description: 'Schedule blocks stored in MongoDB' },
+    { name: 'Auth', description: 'Sign up, sign in, PIN reset, session check and sign out' },
+    { name: 'Events', description: 'The signed-in user’s own schedule blocks' },
     { name: 'Progress', description: 'Per-user completion, reviews, energy and theme' },
-    { name: 'Admin', description: 'Seeding and diagnostics' },
+    { name: 'Profile', description: 'The account’s own settings and guardrails' },
+    { name: 'Insights', description: 'What the account keeps and what slips, read from its own history' },
+    { name: 'Onboarding', description: 'Finishing the one-minute setup' },
+    { name: 'Timetable', description: 'Importing a class timetable, and sharing it by code' },
+    { name: 'Admin', description: 'Seeding (guarded by a server secret)' },
     { name: 'Docs', description: 'This specification' },
   ],
   security: [{ cookieAuth: [] }],
@@ -68,16 +116,88 @@ export const openApiDocument = {
       post: {
         tags: ['Auth'],
         summary: 'Sign in with username and PIN',
-        description: 'Verifies the PIN against the stored bcrypt hash and sets the `auth-token` cookie.',
+        description:
+          'Verifies the PIN against the stored bcrypt hash and sets the `auth-token` cookie. ' +
+          'A wrong PIN and an unknown username return the same 401. Repeated failures lock the ' +
+          'account after 5 attempts in 15 minutes, and lock the client IP after 30 failed ' +
+          'attempts in 15 minutes counted across all accounts from that address; every lock is ' +
+          'capped at 1 hour. A locked caller gets 429 with a `Retry-After` header. A correct PIN ' +
+          'clears the account\'s failures but never the IP counter.',
         security: [],
         requestBody: jsonBody({ $ref: '#/components/schemas/SignInRequest' }),
         responses: {
           200: {
-            description: 'Signed in; auth cookie set',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } },
+            description:
+              'Signed in; auth cookie set. `onboarded` tells the client where to land: an ' +
+              'account that never finished the setup flow resumes it, everyone else goes to the app.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SignInResponse' } } },
           },
           400: errorResponse,
           401: { description: 'Invalid credentials', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          429: { description: 'Too many failed attempts; see the Retry-After header', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/auth/signup': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Create an account and sign in',
+        description:
+          'Creates the account and sets the `auth-token` cookie. Usernames and emails are unique ' +
+          '(enforced by database indexes), so a racing duplicate sign-up returns 409. New accounts ' +
+          'start with an empty schedule, and store the wall-clock zone their times belong to.',
+        security: [],
+        requestBody: jsonBody({ $ref: '#/components/schemas/SignUpRequest' }),
+        responses: {
+          201: {
+            description: 'Account created and signed in',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SignUpResponse' } } },
+          },
+          400: errorResponse,
+          409: { description: 'Username or email already registered', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/auth/forgot-pin': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Email a 6-digit PIN reset code',
+        description:
+          'Sends a 6-digit code to the account’s email via SMTP. The reply is identical whether or ' +
+          'not the account exists, so the endpoint cannot be used to discover who has an account. ' +
+          'Codes expire after 10 minutes and are not re-sent within 60 seconds of the previous request.',
+        security: [],
+        requestBody: jsonBody({ $ref: '#/components/schemas/ForgotPinRequest' }),
+        responses: {
+          200: {
+            description: 'Reset code requested (generic reply)',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ForgotPinResponse' } } },
+          },
+          400: errorResponse,
+          502: { description: 'The email could not be sent', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          503: { description: 'Email is not configured on the server', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/auth/reset-pin': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Set a new PIN using the emailed code',
+        description:
+          'Verifies the code (5 attempts maximum, single use) and replaces the PIN hash, then signs ' +
+          'the user in. A wrong code and an unknown account return the same 400.',
+        security: [],
+        requestBody: jsonBody({ $ref: '#/components/schemas/ResetPinRequest' }),
+        responses: {
+          200: {
+            description: 'PIN updated; auth cookie set',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } },
+          },
+          400: errorResponse,
+          429: { description: 'Too many incorrect attempts', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -112,30 +232,66 @@ export const openApiDocument = {
     '/api/events': {
       get: {
         tags: ['Events'],
-        summary: 'List all schedule events',
+        summary: "List the signed-in user's events, or one day/week of blocks",
+        description:
+          'Only events owned by the session user are ever returned. With no query the raw event ' +
+          'list is returned. With `?date=YYYY-MM-DD` the resolved day is returned, with each block ' +
+          'carrying its event id and its ticked state; with `?week=YYYY-MM-DD` the seven days from ' +
+          'that date’s Monday are returned. Both resolved views also carry the account’s `streak` ' +
+          'and `comebacks` counters. Dates are read in the account’s own timezone.',
+        parameters: [
+          {
+            name: 'date',
+            in: 'query',
+            required: false,
+            description: 'Return the resolved blocks for this day.',
+            schema: { type: 'string', example: '2026-10-19' },
+          },
+          {
+            name: 'week',
+            in: 'query',
+            required: false,
+            description: 'Return the resolved blocks for the seven days from this date’s Monday.',
+            schema: { type: 'string', example: '2026-10-19' },
+          },
+        ],
         responses: {
           200: {
-            description: 'All events',
+            description: 'The user’s events, or a resolved day/week',
             content: {
               'application/json': {
-                schema: { type: 'array', items: { $ref: '#/components/schemas/Event' } },
+                schema: {
+                  oneOf: [
+                    { type: 'array', items: { $ref: '#/components/schemas/Event' } },
+                    { $ref: '#/components/schemas/DayView' },
+                    { $ref: '#/components/schemas/WeekView' },
+                  ],
+                },
               },
             },
           },
+          400: errorResponse,
           401: unauthorizedResponse,
           500: errorResponse,
         },
       },
       post: {
         tags: ['Events'],
-        summary: 'Create an event',
+        summary: 'Create an event for the signed-in user',
+        description:
+          'The new event is owned by the session user. `start` and `end` must differ. Two `fixed` ' +
+          'events may not overlap: a clash returns 409 naming the conflicting event. `flexible` ' +
+          'events may overlap anything. An account may keep at most 300 events, after which a ' +
+          'create returns 400. `exceptions` is server-managed, so one sent in a body is ignored.',
         requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
         responses: {
           201: {
             description: 'Created event',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Event' } } },
           },
+          400: errorResponse,
           401: unauthorizedResponse,
+          409: { description: 'A fixed event overlaps this one', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -152,26 +308,81 @@ export const openApiDocument = {
       ],
       patch: {
         tags: ['Events'],
-        summary: 'Update an event',
-        requestBody: jsonBody({ $ref: '#/components/schemas/EventInput' }),
+        summary: 'Update one of the signed-in user’s events',
+        description:
+          'Events owned by another account are not matched and return 404. `scope` decides how ' +
+          'much of a repeating event the edit covers: `this` writes an exception for `date` so ' +
+          'only that day changes; `future` splits the series at `date`, keeping earlier days ' +
+          '(and their ticks) as they were. Editing on or before the series’ first day replaces ' +
+          'the series. A `fixed` overlap returns 409 naming the conflicting event. New or edited ' +
+          'events must have `end !== start`. A series edit is applied in one transaction: if any ' +
+          'part of it fails, the series is left exactly as it was. `exceptions` is server-managed: ' +
+          'one sent in a body is ignored, and a `this` edit writes one for `date`. An event may ' +
+          'carry at most 500 of them (400 past that).',
+        requestBody: jsonBody({ $ref: '#/components/schemas/EventUpdate' }),
         responses: {
           200: {
             description: 'Updated event',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Event' } } },
           },
+          400: errorResponse,
           401: unauthorizedResponse,
           404: errorResponse,
+          409: { description: 'A fixed event overlaps this one', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
       delete: {
         tags: ['Events'],
-        summary: 'Delete an event',
+        summary: 'Delete one of the signed-in user’s events',
+        description:
+          'Events owned by another account are not matched and return 404. `scope=this&date=…` ' +
+          'hides the event on that one day; `scope=future&date=…` ends the series the day before ' +
+          '`date`; with no scope the event and its completions are removed.',
+        parameters: [
+          {
+            name: 'scope',
+            in: 'query',
+            required: false,
+            description: '`this` skips one date; `future` truncates the series.',
+            schema: { type: 'string', enum: ['this', 'future'] },
+          },
+          {
+            name: 'date',
+            in: 'query',
+            required: false,
+            description: 'The date the scope applies to.',
+            schema: { type: 'string', example: '2026-10-19' },
+          },
+        ],
         responses: {
           200: {
-            description: 'Deleted',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } },
+            description: 'Deleted, skipped or truncated',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/DeleteResult' } } },
           },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          404: errorResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/completions': {
+      patch: {
+        tags: ['Events'],
+        summary: 'Tick or untick a block on a date',
+        description:
+          'Writes or removes a completion row for the event on that date. The event must belong ' +
+          'to the session user *and* actually occur on that date (as resolved), otherwise the ' +
+          'call fails. `done: false` deletes the row, so the call is idempotent. Rows are keyed by ' +
+          '`(ownerId, date, eventId)`, so moving an event’s time no longer orphans its tick.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/CompletionToggle' }),
+        responses: {
+          200: {
+            description: 'The resulting ticked state',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/CompletionResult' } } },
+          },
+          400: errorResponse,
           401: unauthorizedResponse,
           404: errorResponse,
           500: errorResponse,
@@ -210,57 +421,218 @@ export const openApiDocument = {
         },
       },
     },
+    '/api/profile': {
+      get: {
+        tags: ['Profile'],
+        summary: 'Get the signed-in account’s profile',
+        description:
+          'Wake and sleep times, persona, goals, the screen clock, reminder settings and the ' +
+          'account’s own guardrails. A profile is created for every new sign-up; an account from ' +
+          'before profiles existed is answered with sane defaults and `onboarded: true`, so it is ' +
+          'never sent through onboarding.',
+        responses: {
+          200: {
+            description: 'The account’s profile',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } },
+          },
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+      patch: {
+        tags: ['Profile'],
+        summary: 'Update the signed-in account’s profile',
+        description:
+          'Only the provided fields are written, and the document is created if it is missing. ' +
+          '`onboarded` is not accepted here — only `/api/onboarding` sets it. `wake` and `sleep` ' +
+          'may not be the same time when both are sent.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/ProfileUpdate' }),
+        responses: {
+          200: {
+            description: 'The profile after the change',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/account': {
+      get: {
+        tags: ['Profile'],
+        summary: 'Get the signed-in account’s identity',
+        description:
+          'The account’s own fields, kept apart from the profile because they live on the ' +
+          '`users` document: the username it signs in with, the email PIN resets go to, and ' +
+          'the IANA zone its wall-clock times belong to.',
+        responses: {
+          200: {
+            description: 'The account’s identity',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Account' } } },
+          },
+          401: unauthorizedResponse,
+          404: errorResponse,
+          500: errorResponse,
+        },
+      },
+      patch: {
+        tags: ['Profile'],
+        summary: 'Update the account’s email or time zone',
+        description:
+          'Only the provided fields are written. The username is the sign-in identifier and is ' +
+          'not editable here. A raw UTC offset is refused for `timezone`, because an account ' +
+          'tracking an offset would drift an hour at every daylight-saving change. A new email ' +
+          'must not belong to another account (409).',
+        requestBody: jsonBody({ $ref: '#/components/schemas/AccountUpdate' }),
+        responses: {
+          200: {
+            description: 'The account’s identity after the change',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Account' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          404: errorResponse,
+          409: { description: 'That email is already registered', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/insights': {
+      get: {
+        tags: ['Insights'],
+        summary: 'What the account keeps and what slips',
+        description:
+          'Reads the account’s own history: each event’s resolved occurrences on days that are ' +
+          'already over (up to 42 days, never before the plan’s first day), against the ticks ' +
+          'made on those days. Today is excluded because it is still open. An event has to have ' +
+          'come round at least twice before it is judged. "Strengths" are blocks ticked on at ' +
+          'least 70% of their days, "slips" those ticked on at most 34%; both are capped at ' +
+          'four. No AI is involved — every number comes from stored rows.',
+        responses: {
+          200: {
+            description: 'The account’s review',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Insights' } } },
+          },
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/onboarding': {
+      post: {
+        tags: ['Onboarding'],
+        summary: 'Finish onboarding and draft the first week',
+        description:
+          'Saves the answers, drafts the account’s first week from them and marks the account ' +
+          'onboarded. The week is drafted only when the account has no events of its own, so ' +
+          'running the flow again cannot pile a second plan on top of the first. Every drafted ' +
+          'block repeats on all seven days; the three to five must-dos picked become the ' +
+          'essential blocks a Minimum day keeps.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/OnboardingInput' }),
+        responses: {
+          201: {
+            description: 'The saved profile, plus how many blocks the draft created',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/OnboardingResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/timetable': {
+      post: {
+        tags: ['Timetable'],
+        summary: 'Read a pasted timetable into fixed class events',
+        description:
+          'One line per class — `Mon, Wed 08:30-10:00 CE 481 Data Communication` — with the ' +
+          'weekdays anywhere on the line. Lines that cannot be read are skipped, so a heading or ' +
+          'a note is harmless; only a paste with nothing readable at all returns 400. Lines that ' +
+          'agree on their times and title are merged into one weekly event. With `replace`, the ' +
+          'account’s existing classes (and their ticks) are cleared first.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/TimetableInput' }),
+        responses: {
+          201: {
+            description: 'How many classes were read, created and replaced',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/TimetableResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/timetable/share': {
+      post: {
+        tags: ['Timetable'],
+        summary: 'Make a short code for the class timetable',
+        description:
+          'Copies the account’s current `class` events into a share and returns a six-character ' +
+          'code. Only classes are copied, as a snapshot, so a classmate gets the timetable and ' +
+          'never the personal plan behind it — and a later edit to these classes is not reflected. ' +
+          'Codes avoid letters and digits that read alike. An account with no classes gets 400.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/ShareCreateInput' }, false),
+        responses: {
+          201: {
+            description: 'The code and how many classes it carries',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ShareResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/timetable/import': {
+      post: {
+        tags: ['Timetable'],
+        summary: 'Import a shared class timetable by code',
+        description:
+          'Copies the share’s classes onto the account, replacing its own classes so importing ' +
+          'twice does not double them. Everything else the account has planned is left untouched. ' +
+          'An unknown code returns 404.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/ShareImportInput' }),
+        responses: {
+          200: {
+            description: 'How many classes were added',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ImportResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          404: { description: 'The code was not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
     '/api/seed': {
       get: {
         tags: ['Admin'],
         summary: 'Seed the database (idempotent)',
-        description: 'Creates the admin user and the default schedule if they do not already exist.',
+        description: seedDescription,
         security: [],
+        parameters: [seedKeyHeader],
         responses: {
           200: {
             description: 'Seed result',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/SeedResponse' } } },
           },
+          404: { description: 'Seeding is disabled or the key is wrong', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
       post: {
         tags: ['Admin'],
         summary: 'Seed the database (idempotent)',
+        description: seedDescription,
         security: [],
+        parameters: [seedKeyHeader],
         responses: {
           200: {
             description: 'Seed result',
             content: { 'application/json': { schema: { $ref: '#/components/schemas/SeedResponse' } } },
           },
-          500: errorResponse,
-        },
-      },
-    },
-    '/api/test-db': {
-      get: {
-        tags: ['Admin'],
-        summary: 'Database connectivity and counts',
-        security: [],
-        responses: {
-          200: {
-            description: 'Diagnostics',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/DbTestResponse' } } },
-          },
-          500: errorResponse,
-        },
-      },
-    },
-    '/api/debug-cookies': {
-      get: {
-        tags: ['Admin'],
-        summary: 'Inspect the request cookies',
-        security: [],
-        responses: {
-          200: {
-            description: 'Cookie debug info',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/DebugCookiesResponse' } } },
-          },
+          404: { description: 'Seeding is disabled or the key is wrong', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -302,9 +674,64 @@ export const openApiDocument = {
         type: 'object',
         properties: {
           username: { type: 'string', example: 'mmabiaa' },
-          pin: { type: 'string', example: '1234' },
+          pin: { type: 'string', example: '482915', description: 'The account PIN. Accounts created before the 6-digit minimum still sign in with their 4–8 digit PIN.' },
         },
         required: ['username', 'pin'],
+      },
+      SignInResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          onboarded: {
+            type: 'boolean',
+            description:
+              'False when the account has not finished the one-minute setup, so the client sends it to `/onboarding` instead of the app.',
+          },
+        },
+        required: ['success', 'onboarded'],
+      },
+      SignUpRequest: {
+        type: 'object',
+        properties: {
+          username: { type: 'string', example: 'mmabiaa', description: '3–32 letters, numbers, dot, dash or underscore.' },
+          email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Used to send PIN reset codes.' },
+          pin: { type: 'string', example: '482915', description: '6–8 digits, and not trivially guessable (no repeated single digit, no consecutive run, not a common PIN).' },
+          timezone: { type: 'string', example: 'Europe/London', description: 'IANA zone the account\'s wall-clock times belong to. Sent by the sign-up form from the browser; an unknown value falls back to UTC.' },
+        },
+        required: ['username', 'email', 'pin'],
+      },
+      SignUpResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          username: { type: 'string', example: 'mmabiaa' },
+        },
+        required: ['success', 'username'],
+      },
+      ForgotPinRequest: {
+        type: 'object',
+        properties: {
+          identifier: { type: 'string', example: 'mmabiaa', description: 'Username or email of the account.' },
+        },
+        required: ['identifier'],
+      },
+      ForgotPinResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          message: { type: 'string' },
+          expiresInMinutes: { type: 'integer', example: 10 },
+        },
+        required: ['success'],
+      },
+      ResetPinRequest: {
+        type: 'object',
+        properties: {
+          identifier: { type: 'string', example: 'mmabiaa', description: 'The same username or email used to request the code.' },
+          otp: { type: 'string', example: '482915', description: 'The 6-digit code from the email.' },
+          pin: { type: 'string', example: '739184', description: 'The new PIN: 6–8 digits, and not trivially guessable.' },
+        },
+        required: ['identifier', 'otp', 'pin'],
       },
       AuthCheckResponse: {
         type: 'object',
@@ -314,17 +741,86 @@ export const openApiDocument = {
         },
         required: ['authenticated'],
       },
-      EventInput: {
+      Repeat: {
+        oneOf: [
+          {
+            type: 'object',
+            description: 'Repeats on the given weekdays.',
+            properties: {
+              type: { type: 'string', enum: ['weekly'] },
+              days: {
+                type: 'array',
+                minItems: 1,
+                items: { type: 'string', enum: days },
+                description: 'Each weekday at most once.',
+              },
+            },
+            required: ['type', 'days'],
+          },
+          {
+            type: 'object',
+            description:
+              'Occurs on exactly one calendar date. A one-off carries no `startDate`/`endDate`; ' +
+              'the window belongs to a repeating series, and sending one is a 400.',
+            properties: {
+              type: { type: 'string', enum: ['once'] },
+              date: { type: 'string', example: '2026-10-19' },
+            },
+            required: ['type', 'date'],
+          },
+        ],
+      },
+      EventException: {
         type: 'object',
+        description:
+          'Server-managed: written when a `scope: \'this\'` edit or a one-day skip names a date, ' +
+          'never accepted on create or update. `skip` hides the event that day; the other fields ' +
+          'replace what the event says, for that date only. One event carries at most 500.',
         properties: {
-          day: { type: 'string', enum: days },
-          time: { type: 'string', example: '08:30' },
-          title: { type: 'string', example: 'Study: assignments' },
-          category: { type: 'string', enum: categories },
+          date: { type: 'string', example: '2026-10-19' },
+          skip: { type: 'boolean' },
+          start: { type: 'string', example: '09:30' },
+          end: { type: 'string', example: '10:45' },
+          title: { type: 'string' },
           note: { type: 'string' },
           essential: { type: 'boolean' },
         },
-        required: ['day', 'time', 'title', 'category'],
+        required: ['date'],
+      },
+      EventInput: {
+        type: 'object',
+        description:
+          'The fields a client may set. `start` and `end` must differ; `endDate` must not precede ' +
+          '`startDate`; a `once` event takes neither; a `weekly` event lists each weekday once. ' +
+          '`exceptions` is not accepted — see `EventException`; one sent here is ignored.',
+        properties: {
+          title: { type: 'string', example: 'Study: assignments' },
+          category: { type: 'string', enum: categories },
+          kind: { type: 'string', enum: kinds, description: '`fixed` for appointments at a set time, `flexible` for everything movable. Only fixed events conflict.' },
+          start: { type: 'string', example: '09:00' },
+          end: { type: 'string', example: '10:00', description: 'Must differ from `start`.' },
+          repeat: { $ref: '#/components/schemas/Repeat' },
+          startDate: { type: 'string', example: '2026-10-19', description: 'First day the event applies. Optional for weekly events; refused on a `once` event.' },
+          endDate: { type: 'string', example: '2026-12-20', description: 'Last day the event applies. Optional, and never before `startDate`; refused on a `once` event.' },
+          note: { type: 'string' },
+          essential: { type: 'boolean' },
+        },
+        required: ['title', 'category', 'kind', 'start', 'end', 'repeat'],
+      },
+      EventUpdate: {
+        description:
+          'The full set of editable fields — the same set as `EventInput`, `exceptions` included ' +
+          'in neither — plus `scope` and the `date` they apply to. `scope` defaults to `future`.',
+        allOf: [
+          { $ref: '#/components/schemas/EventInput' },
+          {
+            type: 'object',
+            properties: {
+              scope: { type: 'string', enum: ['this', 'future'], default: 'future' },
+              date: { type: 'string', example: '2026-10-19' },
+            },
+          },
+        ],
       },
       Event: {
         allOf: [
@@ -333,15 +829,98 @@ export const openApiDocument = {
             type: 'object',
             properties: {
               _id: { type: 'string', example: '652f1c9f8a1b2c3d4e5f6a7b' },
-              createdAt: { type: 'string', format: 'date-time' },
-              updatedAt: { type: 'string', format: 'date-time' },
+              source: { type: 'string', enum: ['user', 'seed', 'migration'] },
+              ownerId: { type: 'string', description: 'Owner of the event (set by the server, never by the client).' },
+              exceptions: {
+                type: 'array',
+                items: { $ref: '#/components/schemas/EventException' },
+                description: 'Server-managed per-date changes, at most 500 per event.',
+              },
             },
+            required: ['_id', 'source', 'exceptions'],
           },
         ],
       },
+      BlockView: {
+        type: 'object',
+        description: 'One resolved block for a date, with its ticked state.',
+        properties: {
+          eventId: { type: 'string', description: 'The event it came from — the key a completion is stored under.' },
+          title: { type: 'string' },
+          category: { type: 'string', enum: categories },
+          kind: { type: 'string', enum: kinds },
+          start: { type: 'string', example: '09:00' },
+          end: { type: 'string', example: '10:00' },
+          essential: { type: 'boolean' },
+          note: { type: 'string' },
+          source: { type: 'string', enum: ['user', 'seed', 'migration'] },
+          done: { type: 'boolean' },
+        },
+        required: ['eventId', 'title', 'category', 'kind', 'start', 'end', 'essential', 'source', 'done'],
+      },
+      DayView: {
+        type: 'object',
+        properties: {
+          timezone: { type: 'string', example: 'Europe/London', description: 'The account’s zone; the client must use this, not the browser clock, for plan logic.' },
+          today: { type: 'string', example: '2026-10-20', description: 'Today in the account’s zone.' },
+          date: { type: 'string', example: '2026-10-19' },
+          blocks: { type: 'array', items: { $ref: '#/components/schemas/BlockView' } },
+          streak: { type: 'integer', description: STREAK_DESCRIPTION },
+          comebacks: { type: 'integer', description: COMEBACKS_DESCRIPTION },
+        },
+        required: ['timezone', 'today', 'date', 'blocks', 'streak', 'comebacks'],
+      },
+      WeekView: {
+        type: 'object',
+        properties: {
+          timezone: { type: 'string', example: 'Europe/London' },
+          today: { type: 'string', example: '2026-10-20' },
+          weekStart: { type: 'string', example: '2026-10-19', description: 'Monday of the returned week.' },
+          days: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                date: { type: 'string', example: '2026-10-19' },
+                blocks: { type: 'array', items: { $ref: '#/components/schemas/BlockView' } },
+              },
+              required: ['date', 'blocks'],
+            },
+          },
+          streak: { type: 'integer', description: STREAK_DESCRIPTION },
+          comebacks: { type: 'integer', description: COMEBACKS_DESCRIPTION },
+        },
+        required: ['timezone', 'today', 'weekStart', 'days', 'streak', 'comebacks'],
+      },
+      CompletionToggle: {
+        type: 'object',
+        properties: {
+          date: { type: 'string', example: '2026-10-19', description: 'The day the block occurs, in the account’s zone.' },
+          eventId: { type: 'string', example: '652f1c9f8a1b2c3d4e5f6a7b' },
+          done: { type: 'boolean', description: '`true` ticks the block; `false` clears it.' },
+        },
+        required: ['date', 'eventId', 'done'],
+      },
+      CompletionResult: {
+        type: 'object',
+        properties: { done: { type: 'boolean' } },
+        required: ['done'],
+      },
+      DeleteResult: {
+        type: 'object',
+        properties: {
+          deleted: { type: 'boolean', description: 'The event and its completions were removed.' },
+          skipped: { type: 'boolean', description: 'The event was hidden on one date.' },
+          truncated: { type: 'boolean', description: 'The series was ended the day before the given date.' },
+        },
+        required: ['deleted', 'skipped', 'truncated'],
+      },
       Checks: {
         type: 'object',
-        description: 'Block completion flags keyed by `fyr:<date>:<day>:<time>`.',
+        description:
+          'LEGACY. Block completion flags keyed by `fyr:<date>:<day>:<time>`, from before the ' +
+          '`completions` collection existed. Still accepted by `/api/progress` so nothing breaks, ' +
+          'but new ticks are written to `/api/completions`.',
         additionalProperties: { type: 'boolean' },
         example: { 'fyr:2026-10-19:Mon:08:30': true },
       },
@@ -376,45 +955,175 @@ export const openApiDocument = {
           theme: { type: 'string', enum: ['light', 'dark'] },
         },
       },
+      Rules: {
+        type: 'object',
+        description: 'The account’s own guardrails, shown on the Guide screen and edited there.',
+        properties: {
+          phone: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 200 } },
+          study: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 200 } },
+        },
+        required: ['phone', 'study'],
+      },
+      Reminder: {
+        type: 'object',
+        description: 'Whether to nudge before a block, and how many minutes ahead. Shown in-app only.',
+        properties: {
+          enabled: { type: 'boolean' },
+          lead: { type: 'integer', minimum: 0, maximum: 120, example: 10 },
+        },
+        required: ['enabled', 'lead'],
+      },
+      Profile: {
+        type: 'object',
+        properties: {
+          userId: { type: 'string' },
+          onboarded: { type: 'boolean', description: 'False until the onboarding flow is finished; an account with no profile document reads as true.' },
+          name: { type: 'string', maxLength: 60, description: 'The name the app greets the person by. Empty until they set one.' },
+          wake: { type: 'string', example: '06:30' },
+          sleep: { type: 'string', example: '22:30' },
+          persona: { type: 'string', enum: personas },
+          goals: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
+          clock: { type: 'string', enum: clocks, description: 'The clock the screens read.' },
+          reminders: { $ref: '#/components/schemas/Reminder' },
+          rules: { $ref: '#/components/schemas/Rules' },
+        },
+        required: ['userId', 'onboarded', 'name', 'wake', 'sleep', 'persona', 'goals', 'clock', 'reminders', 'rules'],
+      },
+      ProfileUpdate: {
+        type: 'object',
+        description:
+          'Any subset of the editable settings; provided fields are written. `onboarded` is not ' +
+          'editable here, and `wake` and `sleep` may not be equal when both are sent.',
+        properties: {
+          name: { type: 'string', maxLength: 60 },
+          wake: { type: 'string', example: '06:30' },
+          sleep: { type: 'string', example: '22:30', description: 'Must differ from `wake` when both are sent.' },
+          persona: { type: 'string', enum: personas },
+          goals: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
+          clock: { type: 'string', enum: clocks },
+          reminders: { $ref: '#/components/schemas/Reminder' },
+          rules: { $ref: '#/components/schemas/Rules' },
+        },
+      },
+      Account: {
+        type: 'object',
+        description:
+          'The account’s identity, stored on the `users` document rather than the profile. The ' +
+          'username is the sign-in identifier and is never editable.',
+        properties: {
+          username: { type: 'string', example: 'mmabiaa' },
+          email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Where PIN reset codes are sent.' },
+          timezone: { type: 'string', example: 'Europe/London', description: 'IANA zone the account’s wall-clock times belong to.' },
+        },
+        required: ['username', 'email', 'timezone'],
+      },
+      AccountUpdate: {
+        type: 'object',
+        description: 'Any subset of the account’s editable identity. At least one field is required.',
+        properties: {
+          email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Must not belong to another account.' },
+          timezone: { type: 'string', example: 'Europe/London', description: 'A real IANA zone. A raw UTC offset is refused.' },
+        },
+      },
+      InsightItem: {
+        type: 'object',
+        description: 'One block’s record across the review window.',
+        properties: {
+          eventId: { type: 'string' },
+          title: { type: 'string' },
+          category: { type: 'string', enum: categories },
+          occurred: { type: 'integer', description: 'Days it was scheduled on, excluding today.' },
+          done: { type: 'integer', description: 'Of those, how many were ticked.' },
+          rate: { type: 'number', description: '`done / occurred`, from 0 to 1.' },
+        },
+        required: ['eventId', 'title', 'category', 'occurred', 'done', 'rate'],
+      },
+      Insights: {
+        type: 'object',
+        properties: {
+          timezone: { type: 'string', example: 'Europe/London' },
+          today: { type: 'string', example: '2026-10-20' },
+          windowDays: { type: 'integer', description: 'How many days the analysis covers, before the plan’s own floor.' },
+          streak: { type: 'integer', description: STREAK_DESCRIPTION },
+          comebacks: { type: 'integer', description: COMEBACKS_DESCRIPTION },
+          strengths: { type: 'array', items: { $ref: '#/components/schemas/InsightItem' }, description: 'Blocks ticked most reliably — what the account keeps.' },
+          slips: { type: 'array', items: { $ref: '#/components/schemas/InsightItem' }, description: 'Blocks ticked least — what slips.' },
+          tracked: { type: 'integer', description: 'How many blocks carried enough history to be judged.' },
+        },
+        required: ['timezone', 'today', 'windowDays', 'streak', 'comebacks', 'strengths', 'slips', 'tracked'],
+      },
+      OnboardingInput: {
+        type: 'object',
+        properties: {
+          wake: { type: 'string', example: '06:30' },
+          sleep: { type: 'string', example: '22:30' },
+          persona: { type: 'string', enum: personas },
+          goals: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
+          essentials: {
+            type: 'array',
+            minItems: 3,
+            maxItems: 5,
+            items: { type: 'string', enum: mustDos },
+            description: 'The must-dos that become the account’s Minimum day.',
+          },
+        },
+        required: ['wake', 'sleep', 'persona', 'goals', 'essentials'],
+      },
+      OnboardingResult: {
+        allOf: [
+          { $ref: '#/components/schemas/Profile' },
+          {
+            type: 'object',
+            properties: { created: { type: 'integer', description: 'Blocks the drafted week created (0 when the account already had events).' } },
+            required: ['created'],
+          },
+        ],
+      },
+      TimetableInput: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', maxLength: 20000, description: 'One line per class; unreadable lines are skipped.' },
+          replace: { type: 'boolean', description: 'Clear the account’s existing classes (and their ticks) first.' },
+        },
+        required: ['text'],
+      },
+      TimetableResult: {
+        type: 'object',
+        properties: {
+          created: { type: 'integer', description: 'Class events written.' },
+          removed: { type: 'integer', description: 'Existing classes cleared by `replace`.' },
+          found: { type: 'integer', description: 'Classes the parser read out of the paste.' },
+        },
+        required: ['created', 'removed', 'found'],
+      },
+      ShareCreateInput: {
+        type: 'object',
+        properties: { label: { type: 'string', maxLength: 80, description: 'An optional name for the share, for the owner’s own reference.' } },
+      },
+      ShareResult: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', example: 'K7M2QP', description: 'Six characters, from an alphabet without look-alike letters or digits.' },
+          classes: { type: 'integer', description: 'Class events the share carries.' },
+        },
+        required: ['code', 'classes'],
+      },
+      ShareImportInput: {
+        type: 'object',
+        properties: { code: { type: 'string', example: 'K7M2QP', description: 'The six-character code, case-insensitive.' } },
+        required: ['code'],
+      },
+      ImportResult: {
+        type: 'object',
+        properties: { created: { type: 'integer', description: 'Classes added from the share.' } },
+        required: ['created'],
+      },
       SeedResponse: {
         type: 'object',
         properties: {
           success: { type: 'boolean' },
           message: { type: 'string' },
           error: { type: 'string' },
-        },
-      },
-      DbTestResponse: {
-        type: 'object',
-        properties: {
-          success: { type: 'boolean' },
-          connected: { type: 'boolean' },
-          usersCount: { type: 'integer' },
-          eventsCount: { type: 'integer' },
-          users: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                username: { type: 'string' },
-                id: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-      DebugCookiesResponse: {
-        type: 'object',
-        properties: {
-          cookies: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: { name: { type: 'string' }, value: { type: 'string' } },
-            },
-          },
-          count: { type: 'integer' },
-          hasAuthToken: { type: 'boolean' },
         },
       },
     },

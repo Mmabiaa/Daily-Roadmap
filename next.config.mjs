@@ -1,8 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // nodemailer talks raw TCP/TLS to the SMTP server, so it must run as a
+  // normal Node dependency instead of being bundled into the route handler.
+  serverExternalPackages: ['nodemailer'],
   images: {
     unoptimized: true,
   },

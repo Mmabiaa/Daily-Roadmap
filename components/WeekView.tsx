@@ -1,31 +1,27 @@
 'use client'
 
-import { Block, Day, days, focus } from '@/lib/schedule'
-import { keyFor } from '@/lib/utils'
+import { Day, days } from '@/lib/schedule'
+import type { BlockView } from '@/lib/resolver'
 import { BlockRow } from './BlockRow'
 
-type Checks = Record<string, boolean>
-
 type Props = {
-    date: string
-    activeDay: Day
-    blocks: Block[]
-    shown: Block[]
-    checks: Checks
+    blocks: BlockView[]
+    shown: BlockView[]
     selectedDay: Day
     setSelectedDay: (d: Day) => void
+    headline: string
     classHours: number
     studyHours: number
     essentialDone: boolean
     minimum: boolean
     setMinimum: (v: boolean) => void
     onToggle: (i: number) => void
-    onEdit: (block: Block) => void
+    onEdit: (block: BlockView) => void
 }
 
 export function WeekView({
-    date, activeDay, blocks, shown, checks,
-    selectedDay, setSelectedDay, classHours, studyHours, essentialDone,
+    blocks, shown,
+    selectedDay, setSelectedDay, headline, classHours, studyHours, essentialDone,
     minimum, setMinimum, onToggle, onEdit,
 }: Props) {
     return (
@@ -65,7 +61,7 @@ export function WeekView({
             <section className="week-heading">
                 <div>
                     <p className="section-kicker">{selectedDay}</p>
-                    <h2 key={selectedDay} className="title-anim">{focus[selectedDay]}</h2>
+                    <h2 key={selectedDay} className="title-anim">{headline}</h2>
                 </div>
                 <button
                     className={`switch ${minimum ? 'on' : ''}`}
@@ -78,23 +74,30 @@ export function WeekView({
                 </button>
             </section>
 
-            <div className="timeline" key={selectedDay}>
-                {shown.map((block) => {
-                    const i = blocks.indexOf(block)
-                    return (
-                        <BlockRow
-                            key={block.time}
-                            block={block}
-                            index={i}
-                            next={blocks[i + 1]}
-                            done={!!checks[keyFor(date, activeDay, block.time)]}
-                            onToggle={() => onToggle(i)}
-                            onEdit={block.id ? () => onEdit(block) : undefined}
-                            isNow={false}
-                        />
-                    )
-                })}
-            </div>
+            {shown.length === 0 ? (
+                <div className="empty-state">
+                    <p>No blocks to show.</p>
+                    <p className="empty-hint">
+                        Nothing is scheduled for {selectedDay} yet. Tap the + button to add one.
+                    </p>
+                </div>
+            ) : (
+                <div className="timeline" key={selectedDay}>
+                    {shown.map((block) => {
+                        const i = blocks.indexOf(block)
+                        return (
+                            <BlockRow
+                                key={block.eventId}
+                                block={block}
+                                done={block.done}
+                                onToggle={() => onToggle(i)}
+                                onEdit={() => onEdit(block)}
+                                isNow={false}
+                            />
+                        )
+                    })}
+                </div>
+            )}
         </main>
     )
 }

@@ -1,26 +1,52 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Block, Day, days, schedule } from '@/lib/schedule'
-import type { Event } from '@/lib/models'
-import { dateForDay, keyFor, minutes, todayInfo, duration, haptic } from '@/lib/utils'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { days, type Category, type Day } from '@/lib/schedule'
+import type { Kind, Profile, Repeat, Rules } from '@/lib/models'
+import { dayFocus, lowEnergyRun } from '@/lib/preferences'
+import {
+    dayStatus,
+    type BlockView,
+    type DayBlock,
+    type DayStatus,
+    type WeekView as WeekData,
+} from '@/lib/resolver'
+import { durationMinutes, minutesOf, weekdayOf } from '@/lib/schedule-time'
+import { haptic } from '@/lib/utils'
 
 import { BottomNav } from './BottomNav'
 import { FocusMode } from './FocusMode'
 import { Guide } from './Guide'
 import { Review } from './Review'
+import { Settings } from './Settings'
 import { TodayView } from './TodayView'
 import { Topbar } from './Topbar'
 import { WeekView } from './WeekView'
 import { Toast } from './Toast'
 import { Confetti } from './Confetti'
 import FloatingActionButton from './FloatingActionButton'
-import EventFormModal from './EventFormModal'
+import EventFormModal, { type EditTarget } from './EventFormModal'
 
-type View = 'today' | 'week' | 'review' | 'guide'
+type View = 'today' | 'week' | 'review' | 'guide' | 'settings'
+
+type EnergyLevel = 'low' | 'okay' | 'high'
+
+/** A stored event as `GET /api/events` returns it — just the fields the form needs. */
+type ListedEvent = {
+    _id: string
+    title: string
+    category: Category
+    kind: Kind
+    start: string
+    end: string
+    essential: boolean
+    repeat: Repeat
+    startDate?: string
+    endDate?: string
+    note?: string
+}
 
 type StoredProgress = {
-    checks: Record<string, boolean>
     reviews: Record<string, string[]>
     energy: Record<string, 'low' | 'okay' | 'high'>
     theme: 'light' | 'dark' | null
@@ -35,11 +61,43 @@ const changed = <T,>(prev: Record<string, T>, next: Record<string, T>): Record<s
     return out
 }
 
+/** Shown while the signed-in user's own schedule is still loading. */
+function ScheduleSkeleton() {
+    return (
+        <main className="content" role="status" aria-label="Loading your schedule">
+            <div className="skeleton-card" aria-hidden="true">
+                {[0, 1, 2, 3, 4].map((i) => (
+                    <div className="skeleton-row" key={i}>
+                        <span className="skeleton-line skeleton-line--time" />
+                        <span className="skeleton-line skeleton-line--title" />
+                    </div>
+                ))}
+            </div>
+        </main>
+    )
+}
+
+/** Shown when the schedule could not be loaded. Offers a retry, never a fake plan. */
+function ScheduleErrorState({ onRetry }: { onRetry: () => void }) {
+    return (
+        <main className="content">
+            <div className="empty-state" role="alert">
+                <p>We couldn’t load your schedule.</p>
+                <p className="empty-hint">
+                    Your plan is safe on the server — this looks like a connection problem.
+                </p>
+                <button type="button" className="empty-action" onClick={onRetry}>
+                    Try again
+                </button>
+            </div>
+        </main>
+    )
+}
+
 export function AppShell() {
     const [view, setView] = useState<View>('today')
-    const [selectedDay, setSelectedDay] = useState<Day>(todayInfo().day)
+    const [selectedDay, setSelectedDay] = useState<Day>('Mon')
     const [minimum, setMinimum] = useState(false)
-    const [checks, setChecks] = useState<Record<string, boolean>>({})
     const [reviews, setReviews] = useState<Record<string, string[]>>({})
     const [energy, setEnergy] = useState<Record<string, 'low' | 'okay' | 'high'>>({})
     const [now, setNow] = useState<Date | null>(null)
@@ -50,50 +108,74 @@ export function AppShell() {
     const [timerRunning, setTimerRunning] = useState(false)
     const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'info' } | null>(null)
     const [celebrate, setCelebrate] = useState(false)
-    const [events, setEvents] = useState<Event[] | null>(null)
+    // The account's own choices — wake/sleep, its goals, its guardrails and the
+    // reminder rule. Loaded alongside the schedule; the Settings and Guide
+    // screens read it, and reminders follow it.
+    const [profile, setProfile] = useState<Profile | null>(null)
+    // The resolved week comes from the server, so which day is "today", which
+    // blocks a date shows and which are ticked are all decided there, not by the
+    // browser clock. The raw list is kept only so an edit can name what it opens.
+    const [week, setWeek] = useState<WeekData | null>(null)
+    const [events, setEvents] = useState<ListedEvent[] | null>(null)
+    const [eventsError, setEventsError] = useState(false)
     const [formOpen, setFormOpen] = useState(false)
-    const [editTarget, setEditTarget] = useState<Event | null>(null)
+    const [editTarget, setEditTarget] = useState<EditTarget | null>(null)
 
     // Progress lives in the database. `loaded` gates persistence until the
     // initial fetch resolves; `saved` is the last snapshot written to the API.
     const loaded = useRef(false)
-    const saved = useRef<StoredProgress>({ checks: {}, reviews: {}, energy: {}, theme: null })
+    const saved = useRef<StoredProgress>({ reviews: {}, energy: {}, theme: null })
+    // The week tab opens on the account's own today, but only once.
+    const pickedDay = useRef(false)
+    // The last block a reminder was already shown for, so it is not repeated.
+    const reminded = useRef('')
 
-    // Load events from the database. Until they arrive (or if the request
-    // fails) the bundled schedule is used, so the view is never empty.
-    const loadEvents = useCallback(async () => {
+    // Load the resolved week and the raw event list together. Until they arrive
+    // we show a skeleton, and on failure an error with a retry. We never fall
+    // back to a bundled plan: the starter schedule belongs to the seeded account.
+    const loadSchedule = useCallback(async () => {
+        setEventsError(false)
         try {
-            const res = await fetch('/api/events', { cache: 'no-store' })
-            if (!res.ok) return
-            setEvents(await res.json())
+            const [weekRes, listRes] = await Promise.all([
+                fetch('/api/events?week=', { cache: 'no-store' }),
+                fetch('/api/events', { cache: 'no-store' }),
+            ])
+            if (!weekRes.ok || !listRes.ok) throw new Error('Request failed')
+
+            const data: WeekData = await weekRes.json()
+            setWeek(data)
+            setEvents(await listRes.json())
+            if (!pickedDay.current) {
+                pickedDay.current = true
+                setSelectedDay(weekdayOf(data.today))
+            }
         } catch {
-            /* keep the bundled fallback schedule */
+            setEventsError(true)
         }
     }, [])
 
     useEffect(() => {
-        loadEvents()
-    }, [loadEvents])
+        loadSchedule()
+    }, [loadSchedule])
 
-    // Day → blocks, built from the database; falls back to the bundled plan.
-    const scheduleMap = useMemo<Record<Day, Block[]>>(() => {
-        if (!events) return schedule
-        const map = {} as Record<Day, Block[]>
-        for (const day of days) {
-            map[day] = events
-                .filter((e) => e.day === day)
-                .sort((a, b) => minutes(a.time) - minutes(b.time))
-                .map((e) => ({
-                    id: e._id,
-                    time: e.time,
-                    title: e.title,
-                    category: e.category,
-                    note: e.note,
-                    essential: e.essential,
-                }))
+    // The account's own settings. A failure only means the Settings and Guide
+    // tabs have nothing to show yet — the plan itself is unaffected.
+    useEffect(() => {
+        let cancelled = false
+        ;(async () => {
+            try {
+                const res = await fetch('/api/profile', { cache: 'no-store' })
+                if (!res.ok) return
+                const data = await res.json()
+                if (!cancelled) setProfile(data)
+            } catch {
+                /* offline — retry on the next visit */
+            }
+        })()
+        return () => {
+            cancelled = true
         }
-        return map
-    }, [events])
+    }, [])
 
     // Hydrate progress from the database + start the clock AFTER mount
     // (avoids SSR mismatch). Nothing is read from or written to localStorage.
@@ -109,12 +191,10 @@ export function AppShell() {
                 const data = await res.json()
                 if (cancelled) return
                 const next: StoredProgress = {
-                    checks: data.checks ?? {},
                     reviews: data.reviews ?? {},
                     energy: data.energy ?? {},
                     theme: data.theme ?? null,
                 }
-                setChecks(next.checks)
                 setReviews(next.reviews)
                 setEnergy(next.energy)
                 setTheme(
@@ -150,8 +230,6 @@ export function AppShell() {
             const prev = saved.current
             const body: Record<string, unknown> = {}
 
-            const checksDelta = changed(prev.checks, checks)
-            if (Object.keys(checksDelta).length) body.checks = checksDelta
             const reviewsDelta = changed(prev.reviews, reviews)
             if (Object.keys(reviewsDelta).length) body.reviews = reviewsDelta
             const energyDelta = changed(prev.energy, energy)
@@ -159,7 +237,7 @@ export function AppShell() {
             if (prev.theme !== theme) body.theme = theme
 
             if (Object.keys(body).length === 0) return
-            saved.current = { checks, reviews, energy, theme }
+            saved.current = { reviews, energy, theme }
             fetch('/api/progress', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -169,7 +247,7 @@ export function AppShell() {
             })
         }, 600)
         return () => clearTimeout(id)
-    }, [checks, reviews, energy, theme])
+    }, [reviews, energy, theme])
 
     // Focus timer tick
     useEffect(() => {
@@ -215,82 +293,119 @@ export function AppShell() {
     // Use a "safe now" that's only the real clock once mounted.
     // Before mount: use midnight so server + first client render agree.
     const safeNow = now ?? new Date(2000, 0, 1, 0, 0, 0)
-    const today = todayInfo()
-    const activeDay = view === 'today' ? today.day : selectedDay
-    const date = dateForDay(activeDay)
-    const blocks = scheduleMap[activeDay]
+    const todayDay = week ? weekdayOf(week.today) : null
+    const activeDay: Day = view === 'today' && todayDay ? todayDay : selectedDay
+    const day = week?.days[days.indexOf(activeDay)]
+    const date = day?.date ?? ''
+    const blocks = day?.blocks ?? []
     const shown = minimum ? blocks.filter((b) => b.essential) : blocks
 
-    const isToday = activeDay === today.day
+    // The week's headline is read from the day's own blocks and goals, so it
+    // describes the account's plan rather than the seeded template it used to.
+    const headline = dayFocus(blocks, profile?.goals ?? [], profile?.clock ?? '24')
+
+    const isToday = todayDay !== null && activeDay === todayDay
     const currentMinutes = safeNow.getHours() * 60 + safeNow.getMinutes()
-    const currentIndex = mounted && isToday
-        ? blocks.findIndex((b, i) => {
-            const end = i < blocks.length - 1 ? minutes(blocks[i + 1].time) : minutes('05:30')
-            let e = end
-            if (e <= minutes(b.time)) e += 1440
-            return currentMinutes >= minutes(b.time) && currentMinutes < e
-        })
-        : -1
+    const status: DayStatus =
+        mounted && isToday ? dayStatus(blocks, currentMinutes) : { current: null, next: null, minutesLeft: null }
 
     const completion = blocks.length
-        ? blocks.filter((b) => checks[keyFor(date, activeDay, b.time)]).length / blocks.length
+        ? blocks.filter((b) => b.done).length / blocks.length
         : 0
 
-    const essentialDone = blocks
-        .filter((b) => b.essential)
-        .every((b) => checks[keyFor(date, activeDay, b.time)])
+    // A day only counts once it has essentials; an empty schedule must not read
+    // as "everything done" (every() on an empty list is true).
+    const essentials = blocks.filter((b) => b.essential)
+    const essentialDone = essentials.length > 0 && essentials.every((b) => b.done)
 
-    const nextBlock =
-        currentIndex >= 0
-            ? blocks[currentIndex + 1]
-            : blocks.find((b) => minutes(b.time) > currentMinutes)
-
-    const minsToNext = nextBlock ? Math.max(0, minutes(nextBlock.time) - currentMinutes) : 0
-
-    const streak = useMemo(() => {
-        let count = 0
-        const d = new Date()
-        for (let x = 0; x < 30; x++) {
-            const day = days[(d.getDay() + 6) % 7] as Day
-            const date = dateForDay(day, d)
-            const arr = scheduleMap[day]
-            const ok = arr
-                .filter((b) => b.essential)
-                .every((b) => checks[keyFor(date, day, b.time)])
-            if (!ok) break
-            count++
-            d.setDate(d.getDate() - 1)
-        }
-        return count
-    }, [checks, scheduleMap])
-
-    const toggle = (i: number) => {
-        const block = blocks[i]
-        if (!block) return
-        haptic(6)
-        const key = keyFor(date, activeDay, block.time)
-        const willBeDone = !checks[key]
-        setChecks((v) => ({ ...v, [key]: willBeDone }))
-        if (willBeDone && block.essential) {
-            setToast({ message: 'Essential done · nice', tone: 'success' })
-        }
-    }
+    const streak = week?.streak ?? 0
 
     const classHours = Math.round(
-        blocks.reduce(
-            (a, b, i) => a + (b.category === 'class' ? duration(b, blocks[i + 1]) : 0),
-            0
-        ) / 60 * 10
+        blocks.reduce((a, b) => a + (b.category === 'class' ? durationMinutes(b.start, b.end) : 0), 0) / 60 * 10
     ) / 10
 
     const studyHours = Math.round(
-        blocks.reduce(
-            (a, b, i) => a + (b.category === 'study' ? duration(b, blocks[i + 1]) : 0),
-            0
-        ) / 60 * 10
+        blocks.reduce((a, b) => a + (b.category === 'study' ? durationMinutes(b.start, b.end) : 0), 0) / 60 * 10
     ) / 10
 
-    const focusBlock = blocks[currentIndex >= 0 ? currentIndex : 0]
+    const focusBlock: DayBlock | undefined = status.current ?? blocks[0]
+
+    const comebacks = week?.comebacks ?? 0
+    const todayDate = week?.today ?? ''
+    const energyToday = todayDate ? energy[todayDate] ?? null : null
+    const lowRun = todayDate ? lowEnergyRun(energy, todayDate) : 0
+
+    // Hours of classes and study across the whole week — the "too full" signal.
+    const weekLoad = (week?.days ?? []).reduce(
+        (total, d) =>
+            total +
+            d.blocks.reduce(
+                (sum, b) =>
+                    sum +
+                    (b.category === 'class' || b.category === 'study'
+                        ? durationMinutes(b.start, b.end)
+                        : 0),
+                0
+            ),
+        0
+    ) / 60
+
+    // A nudge before the next block starts, following the account's own lead
+    // time. Shown once per block; nothing is sent to a push service.
+    useEffect(() => {
+        if (!mounted || !profile?.reminders.enabled || !status.next || !date) return
+        const mins = minutesOf(status.next.start) - currentMinutes
+        if (mins <= 0 || mins > profile.reminders.lead) return
+
+        const key = `${date}:${status.next.eventId}`
+        if (reminded.current === key) return
+        reminded.current = key
+        setToast({ message: `Starting in ${mins} min · ${status.next.title}` })
+    }, [mounted, profile, status.next, currentMinutes, date])
+
+    /** Reflect a tick locally so the row answers at once, before the server does. */
+    const markDone = (onDate: string, eventId: string, done: boolean) =>
+        setWeek((current) =>
+            current
+                ? {
+                    ...current,
+                    days: current.days.map((d) =>
+                        d.date !== onDate
+                            ? d
+                            : {
+                                ...d,
+                                blocks: d.blocks.map((block) =>
+                                    block.eventId === eventId ? { ...block, done } : block
+                                ),
+                            }
+                    ),
+                }
+                : current
+        )
+
+    const toggle = (i: number) => {
+        const block = blocks[i]
+        if (!block || !date) return
+        haptic(6)
+        const done = !block.done
+        markDone(date, block.eventId, done)
+        if (done && block.essential) {
+            setToast({ message: 'Essential done · nice', tone: 'success' })
+        }
+        void (async () => {
+            try {
+                const res = await fetch('/api/completions', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date, eventId: block.eventId, done }),
+                })
+                // A refused tick means the local guess was wrong; re-read the day.
+                if (!res.ok) await loadSchedule()
+            } catch {
+                await loadSchedule()
+            }
+        })()
+    }
 
     const handleLockIn = () => {
         const next = !lockIn
@@ -299,16 +414,63 @@ export function AppShell() {
         setTimerRunning(next)
     }
 
+    const handleSignOut = async () => {
+        try {
+            await fetch('/api/auth/signout', { method: 'POST' })
+        } catch {
+            /* the cookie is cleared server-side; fall through to the redirect */
+        }
+        window.location.replace('/signin')
+    }
+
+    const handleProfile = useCallback((next: Profile) => setProfile(next), [])
+
+    /** The Guide's edit: save the account's own rules, keep them on screen. */
+    const handleRules = useCallback(async (rules: Rules) => {
+        try {
+            const res = await fetch('/api/profile', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rules }),
+            })
+            if (res.ok) setProfile(await res.json())
+        } catch {
+            /* keep what is on screen; the next edit tries again */
+        }
+    }, [])
+
+    const markEnergy = (level: EnergyLevel) => {
+        if (!todayDate) return
+        haptic(5)
+        setEnergy((current) => ({ ...current, [todayDate]: level }))
+    }
+
     const openNewEvent = () => {
         haptic(6)
         setEditTarget(null)
         setFormOpen(true)
     }
 
-    const openEditEvent = (block: Block) => {
-        if (!block.id) return
+    // A block shows the day it was opened from; the repeating rule and window
+    // still belong to the stored event, so both are read to name what to edit.
+    const openEditEvent = (block: BlockView) => {
+        const source = events?.find((e) => e._id === block.eventId)
+        if (!source || !date) return
         haptic(6)
-        setEditTarget(events?.find((e) => e._id === block.id) ?? null)
+        setEditTarget({
+            id: block.eventId,
+            date,
+            title: block.title,
+            category: block.category,
+            kind: block.kind,
+            start: block.start,
+            end: block.end,
+            essential: block.essential,
+            note: block.note,
+            repeat: source.repeat,
+            startDate: source.startDate,
+            endDate: source.endDate,
+        })
         setFormOpen(true)
     }
 
@@ -336,7 +498,9 @@ export function AppShell() {
                     ? 'A gentle view of the week ahead'
                     : view === 'review'
                         ? 'A quiet Sunday check-in'
-                        : 'Small rules, made easier to keep'
+                        : view === 'settings'
+                            ? 'Your day, your rules'
+                            : 'Small rules, made easier to keep'
 
     return (
         <div className="app-shell">
@@ -350,9 +514,10 @@ export function AppShell() {
                     haptic(5)
                     setTheme(theme === 'light' ? 'dark' : 'light')
                 }}
+                onSignOut={handleSignOut}
             />
 
-            {lockIn && (
+            {lockIn && focusBlock && (
                 <FocusMode
                     block={focusBlock}
                     timer={timer}
@@ -370,47 +535,50 @@ export function AppShell() {
             )}
 
             <div className={`page-transition ${view}`}>
-                {view === 'today' && (
-                    <TodayView
-                        date={date}
-                        activeDay={activeDay}
-                        blocks={blocks}
-                        shown={shown}
-                        checks={checks}
-                        completion={completion}
-                        streak={streak}
-                        currentIndex={currentIndex}
-                        nextBlock={nextBlock}
-                        minsToNext={minsToNext}
-                        minimum={minimum}
-                        setMinimum={setMinimum}
-                        onToggle={toggle}
-                        onEdit={openEditEvent}
-                        mounted={mounted}
-                    />
-                )}
-
-                {view === 'week' && (
-                    <WeekView
-                        date={date}
-                        activeDay={activeDay}
-                        blocks={blocks}
-                        shown={shown}
-                        checks={checks}
-                        selectedDay={selectedDay}
-                        setSelectedDay={(d) => {
-                            haptic(5)
-                            setSelectedDay(d)
-                        }}
-                        classHours={classHours}
-                        studyHours={studyHours}
-                        essentialDone={essentialDone}
-                        minimum={minimum}
-                        setMinimum={setMinimum}
-                        onToggle={toggle}
-                        onEdit={openEditEvent}
-                    />
-                )}
+                {(view === 'today' || view === 'week') &&
+                    (eventsError ? (
+                        <ScheduleErrorState onRetry={loadSchedule} />
+                    ) : !week ? (
+                        <ScheduleSkeleton />
+                    ) : view === 'today' ? (
+                        <TodayView
+                            blocks={blocks}
+                            shown={shown}
+                            completion={completion}
+                            streak={streak}
+                            comebacks={comebacks}
+                            current={status.current}
+                            next={status.next}
+                            minutesLeft={status.minutesLeft}
+                            minimum={minimum}
+                            setMinimum={setMinimum}
+                            onToggle={toggle}
+                            onEdit={openEditEvent}
+                            energyToday={energyToday}
+                            onEnergy={markEnergy}
+                            lowRun={lowRun}
+                            weekLoad={weekLoad}
+                            mounted={mounted}
+                        />
+                    ) : (
+                        <WeekView
+                            blocks={blocks}
+                            shown={shown}
+                            selectedDay={selectedDay}
+                            setSelectedDay={(d) => {
+                                haptic(5)
+                                setSelectedDay(d)
+                            }}
+                            headline={headline}
+                            classHours={classHours}
+                            studyHours={studyHours}
+                            essentialDone={essentialDone}
+                            minimum={minimum}
+                            setMinimum={setMinimum}
+                            onToggle={toggle}
+                            onEdit={openEditEvent}
+                        />
+                    ))}
 
                 {view === 'review' && (
                     <Review
@@ -419,7 +587,17 @@ export function AppShell() {
                         onSaved={() => setToast({ message: 'Saved to your account', tone: 'success' })}
                     />
                 )}
-                {view === 'guide' && <Guide />}
+                {view === 'guide' && profile && (
+                    <Guide rules={profile.rules} onRules={handleRules} profile={profile} />
+                )}
+                {view === 'settings' && profile && (
+                    <Settings
+                        profile={profile}
+                        onProfile={handleProfile}
+                        onToast={(message, tone) => setToast({ message, tone })}
+                        onSignOut={handleSignOut}
+                    />
+                )}
             </div>
 
             {toast && <Toast message={toast.message} tone={toast.tone} />}
@@ -437,10 +615,11 @@ export function AppShell() {
                         message: editTarget ? 'Event updated' : 'Event added',
                         tone: 'success',
                     })
-                    loadEvents()
+                    loadSchedule()
                 }}
                 event={editTarget}
                 defaultDay={activeDay}
+                defaultDate={date}
             />
 
             <BottomNav view={view} setView={setView} />

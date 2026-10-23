@@ -140,7 +140,7 @@
     left: 0;
     z-index: 10;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     max-width: 720px;
     margin: auto;
     padding: 9px 12px max(9px, env(safe-area-inset-bottom));

@@ -1,0 +1,652 @@
+import { after, before, beforeEach, describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import { ObjectId, type Db } from 'mongodb'
+
+import { accountFor } from './accounts.ts'
+import { ApiError } from './errors.ts'
+import { ensureIndexes, getDb } from './mongodb.ts'
+import { accountKey, ipKey } from './rate-limit-policy.ts'
+import { profileFor, saveProfile } from './profile.ts'
+import { recordFailure } from './rate-limit.ts'
+import type { DayName, EventInput } from './models.ts'
+import { addDays } from './schedule-time.ts'
+import {
+  MAX_EVENTS,
+  MAX_EXCEPTIONS,
+  computeStreak,
+  createEvent,
+  deleteEvent,
+  getDayView,
+  setCompletion,
+  updateEvent,
+} from './schedule-service.ts'
+import { integrationSkipped, startTestDb, type TestDb } from './test-mongo.ts'
+
+/**
+ * Behaviour that only a real database can prove: ownership scoping, the
+ * completion unique index, series splitting, overlap detection, and the
+ * concurrency phases 0 and 1A were designed around.
+ *
+ * `accountFor` is `requireUser()` without the cookie read, so testing it here
+ * is testing the rule that retires a token — `requireUser()` is that call plus
+ * a 401 when it answers `null`.
+ */
+
+/** 2026-10-19 is a Monday; the next four Mondays are the 26th, and Nov 2 and 9. */
+const MONDAY = '2026-10-19'
+const NEXT_MONDAY = '2026-10-26'
+const SPLIT_MONDAY = '2026-11-02'
+
+/** Skipping must never look like a pass, so say so out loud. */
+const skip = integrationSkipped()
+if (skip) {
+  console.warn('⚠ SKIPPING the database integration suite: SKIP_INTEGRATION=1 is set.')
+}
+
+let testDb: TestDb
+let db: Db
+
+describe('database-backed behaviour', { skip: skip && 'SKIP_INTEGRATION=1 is set' }, () => {
+  before(async () => {
+    testDb = await startTestDb()
+    await ensureIndexes()
+    db = await getDb()
+  })
+
+  after(async () => {
+    await testDb.stop()
+  })
+
+  beforeEach(async () => {
+    await testDb.reset()
+  })
+
+  const owner = new ObjectId().toString()
+
+  /** A Monday-morning event; pass overrides to change one field at a time. */
+  function weekly(over: Partial<EventInput> = {}): EventInput {
+    return {
+      title: 'Study',
+      category: 'study',
+      kind: 'flexible',
+      start: '09:00',
+      end: '10:00',
+      repeat: { type: 'weekly', days: ['Mon'] },
+      startDate: MONDAY,
+      ...over,
+    }
+  }
+
+  const failsWith = (status: number) => (error: unknown) =>
+    error instanceof ApiError && error.status === status
+
+  describe('accountFor', () => {
+    it('accepts a session whose token version still matches', async () => {
+      const _id = new ObjectId()
+      await db.collection('users').insertOne({ _id, username: 'ama', pinHash: 'x', tokenVersion: 0 })
+
+      assert.deepEqual(await accountFor({ userId: _id.toString(), tv: 0 }), {
+        id: _id.toString(),
+      })
+    })
+
+    it('refuses a token issued before the account was bumped', async () => {
+      const _id = new ObjectId()
+      await db.collection('users').insertOne({ _id, username: 'ama', pinHash: 'x', tokenVersion: 0 })
+      const issued = { userId: _id.toString(), tv: 0 }
+
+      // Changing the PIN or signing out everywhere bumps the stored version.
+      await db.collection('users').updateOne({ _id }, { $inc: { tokenVersion: 1 } })
+
+      assert.equal(await accountFor(issued), null)
+      assert.ok(await accountFor({ userId: _id.toString(), tv: 1 }))
+    })
+
+    it('refuses a session for an account that no longer exists', async () => {
+      assert.equal(await accountFor({ userId: new ObjectId().toString(), tv: 0 }), null)
+    })
+
+    it('refuses a missing or malformed session', async () => {
+      assert.equal(await accountFor(null), null)
+      assert.equal(await accountFor({ userId: 'not-an-object-id', tv: 0 }), null)
+    })
+
+    it('treats an account with no tokenVersion as version 0', async () => {
+      const _id = new ObjectId()
+      await db.collection('users').insertOne({ _id, username: 'kofi', pinHash: 'x' })
+
+      assert.ok(await accountFor({ userId: _id.toString(), tv: 0 }))
+      assert.equal(await accountFor({ userId: _id.toString(), tv: 1 }), null)
+    })
+  })
+
+  describe('events are owned', () => {
+    it('does not let another account read, edit, tick or delete an event', async () => {
+      const mine = await createEvent(owner, weekly())
+      const other = new ObjectId().toString()
+
+      await assert.rejects(
+        () =>
+          updateEvent(other, mine._id, {
+            ...weekly({ start: '11:00', end: '12:00' }),
+            scope: 'future',
+            date: MONDAY,
+          }),
+        failsWith(404)
+      )
+      await assert.rejects(() => deleteEvent(other, mine._id), failsWith(404))
+      await assert.rejects(
+        () => setCompletion(other, { date: MONDAY, eventId: mine._id, done: true }),
+        failsWith(404)
+      )
+
+      const day = await getDayView(owner, MONDAY)
+      assert.equal(day.blocks.length, 1)
+      assert.equal(day.blocks[0].start, '09:00')
+      assert.equal(day.blocks[0].done, false)
+    })
+
+    it('answers 404 for a missing or malformed id', async () => {
+      await assert.rejects(() => deleteEvent(owner, new ObjectId().toString()), failsWith(404))
+      await assert.rejects(() => deleteEvent(owner, 'not-an-id'), failsWith(404))
+    })
+  })
+
+  describe('completions', () => {
+    it('keeps one row per event and date, however many times it is ticked', async () => {
+      const event = await createEvent(owner, weekly())
+
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+
+      assert.equal(await db.collection('completions').countDocuments({ ownerId: owner }), 1)
+    })
+
+    it('is enforced by the unique index, not only by the handler', async () => {
+      const event = await createEvent(owner, weekly())
+      const row = { ownerId: owner, date: MONDAY, eventId: event._id, doneAt: new Date() }
+      await db.collection('completions').insertOne({ ...row })
+
+      await assert.rejects(
+        () => db.collection('completions').insertOne({ ...row }),
+        (error: unknown) => (error as { code?: number }).code === 11000
+      )
+    })
+
+    it('clears the tick on done: false and refuses a date the event is not on', async () => {
+      const event = await createEvent(owner, weekly())
+
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: false })
+      assert.equal(await db.collection('completions').countDocuments({}), 0)
+
+      // The Tuesday after: a Monday event does not occur then.
+      await assert.rejects(
+        () => setCompletion(owner, { date: '2026-10-20', eventId: event._id, done: true }),
+        failsWith(400)
+      )
+    })
+
+    it('keeps two events that start at the same time separate', async () => {
+      const first = await createEvent(owner, weekly({ title: 'A' }))
+      const second = await createEvent(owner, weekly({ title: 'B' }))
+
+      await setCompletion(owner, { date: MONDAY, eventId: second._id, done: true })
+
+      const day = await getDayView(owner, MONDAY)
+      const done = new Map(day.blocks.map((block) => [block.eventId, block.done]))
+      assert.equal(done.size, 2)
+      assert.equal(done.get(second._id), true)
+      assert.equal(done.get(first._id), false)
+    })
+  })
+
+  describe('fixed events must not overlap', () => {
+    const fixed = (over: Partial<EventInput> = {}) =>
+      weekly({ kind: 'fixed', category: 'class', title: 'Class', ...over })
+
+    it('refuses a clash and names the event it clashes with', async () => {
+      await createEvent(owner, fixed())
+
+      await assert.rejects(
+        () => createEvent(owner, fixed({ title: 'Lab', start: '09:30', end: '10:30' })),
+        (error: unknown) =>
+          error instanceof ApiError &&
+          error.status === 409 &&
+          error.message === 'That time clashes with Class (Mon 09:00–10:00)'
+      )
+    })
+
+    it('allows two fixed events back to back', async () => {
+      await createEvent(owner, fixed())
+      const later = await createEvent(owner, fixed({ start: '10:00', end: '11:00' }))
+
+      assert.ok(later._id)
+    })
+
+    it('allows a fixed event on another weekday', async () => {
+      await createEvent(owner, fixed())
+      const tuesday = await createEvent(owner, fixed({ repeat: { type: 'weekly', days: ['Tue'] } }))
+
+      assert.ok(tuesday._id)
+    })
+
+    it('allows a flexible event on top of a fixed one', async () => {
+      await createEvent(owner, fixed())
+      const flexible = await createEvent(owner, weekly({ start: '09:30', end: '10:30' }))
+
+      assert.ok(flexible._id)
+    })
+
+    it('does not treat two series as clashing when their date ranges never meet', async () => {
+      await createEvent(owner, fixed({ startDate: MONDAY, endDate: '2026-10-25' }))
+      const later = await createEvent(owner, fixed({ startDate: '2026-11-02' }))
+
+      assert.ok(later._id)
+    })
+  })
+
+  describe('scope edits', () => {
+    it('scope this writes an exception and leaves the rest of the series alone', async () => {
+      const event = await createEvent(owner, weekly())
+
+      await updateEvent(owner, event._id, {
+        ...weekly({ title: 'Study (short)', start: '08:00', end: '08:30' }),
+        scope: 'this',
+        date: NEXT_MONDAY,
+      })
+
+      const edited = await getDayView(owner, NEXT_MONDAY)
+      assert.equal(edited.blocks.length, 1)
+      assert.equal(edited.blocks[0].start, '08:00')
+      assert.equal(edited.blocks[0].title, 'Study (short)')
+
+      const untouched = await getDayView(owner, SPLIT_MONDAY)
+      assert.equal(untouched.blocks[0].start, '09:00')
+      assert.equal(untouched.blocks[0].title, 'Study')
+    })
+
+    it('refuses scope this on a date the event does not occur', async () => {
+      const event = await createEvent(owner, weekly())
+
+      await assert.rejects(
+        () => updateEvent(owner, event._id, { ...weekly(), scope: 'this', date: '2026-10-20' }),
+        failsWith(400)
+      )
+    })
+
+    it('refuses a date change once an event carries the cap', async () => {
+      const event = await createEvent(owner, weekly())
+
+      // Fill the event to the cap directly; the API cannot be used to reach it.
+      const full = Array.from({ length: MAX_EXCEPTIONS }, (_, index) => ({
+        date: addDays('2020-01-01', index),
+        skip: true,
+      }))
+      await db
+        .collection('events')
+        .updateOne({ _id: new ObjectId(event._id), ownerId: owner }, { $set: { exceptions: full } })
+
+      await assert.rejects(
+        () => updateEvent(owner, event._id, { ...weekly(), scope: 'this', date: NEXT_MONDAY }),
+        failsWith(400)
+      )
+      await assert.rejects(
+        () => deleteEvent(owner, event._id, { scope: 'this', date: NEXT_MONDAY }),
+        failsWith(400)
+      )
+
+      const stored = await db.collection('events').findOne({ _id: new ObjectId(event._id) })
+      assert.equal((stored?.exceptions as unknown[]).length, MAX_EXCEPTIONS)
+    })
+
+    it('scope future splits the series, keeping past days and their ticks', async () => {
+      const event = await createEvent(owner, weekly())
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+
+      const created = await updateEvent(owner, event._id, {
+        ...weekly({ start: '10:00', end: '11:00' }),
+        scope: 'future',
+        date: SPLIT_MONDAY,
+      })
+      assert.notEqual(created._id, event._id)
+
+      assert.equal((await getDayView(owner, MONDAY)).blocks[0].done, true)
+      assert.equal((await getDayView(owner, NEXT_MONDAY)).blocks[0].start, '09:00')
+      assert.equal((await getDayView(owner, SPLIT_MONDAY)).blocks[0].start, '10:00')
+    })
+
+    it('replacing the series from its first day drops the old completions', async () => {
+      const event = await createEvent(owner, weekly())
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+
+      await updateEvent(owner, event._id, {
+        ...weekly({ title: 'New' }),
+        scope: 'future',
+        date: MONDAY,
+      })
+
+      assert.equal(await db.collection('completions').countDocuments({ ownerId: owner }), 0)
+      const day = await getDayView(owner, MONDAY)
+      assert.equal(day.blocks.length, 1)
+      assert.equal(day.blocks[0].title, 'New')
+    })
+  })
+
+  describe('scope deletes', () => {
+    it('scope this hides one date without ending the series', async () => {
+      const event = await createEvent(owner, weekly())
+
+      await deleteEvent(owner, event._id, { scope: 'this', date: NEXT_MONDAY })
+
+      assert.equal((await getDayView(owner, NEXT_MONDAY)).blocks.length, 0)
+      assert.equal((await getDayView(owner, SPLIT_MONDAY)).blocks.length, 1)
+    })
+
+    it('scope future ends the series the day before the date', async () => {
+      const event = await createEvent(owner, weekly())
+
+      await deleteEvent(owner, event._id, { scope: 'future', date: SPLIT_MONDAY })
+
+      assert.equal((await getDayView(owner, NEXT_MONDAY)).blocks.length, 1)
+      assert.equal((await getDayView(owner, SPLIT_MONDAY)).blocks.length, 0)
+      assert.equal(await db.collection('events').countDocuments({ _id: new ObjectId(event._id) }), 1)
+    })
+
+    it('deleting without a scope removes the event and its completions', async () => {
+      const event = await createEvent(owner, weekly())
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+
+      assert.deepEqual(await deleteEvent(owner, event._id), {
+        deleted: true,
+        skipped: false,
+        truncated: false,
+      })
+      assert.equal(await db.collection('events').countDocuments({ ownerId: owner }), 0)
+      assert.equal(await db.collection('completions').countDocuments({ ownerId: owner }), 0)
+    })
+  })
+
+  describe('the streak', () => {
+    // 2026-10-19 is a Monday; 21 is the Wednesday of that first week.
+    const TODAY = '2026-10-21'
+    const FIRST_WEEK = ['2026-10-19', '2026-10-20', '2026-10-21']
+    const WEEK_BEFORE = ['2026-10-12', '2026-10-13', '2026-10-14']
+
+    /** An essential event on the given weekdays. `null` means "no first day". */
+    async function essential(
+      days: DayName[] = ['Mon', 'Tue', 'Wed'],
+      startDate: string | null = MONDAY
+    ) {
+      return createEvent(owner, {
+        title: 'Study',
+        category: 'study',
+        kind: 'flexible',
+        start: '09:00',
+        end: '10:00',
+        repeat: { type: 'weekly', days },
+        essential: true,
+        ...(startDate ? { startDate } : {}),
+      })
+    }
+
+    const tick = (date: string, eventId: string) =>
+      setCompletion(owner, { date, eventId, done: true })
+
+    const streakNow = () => computeStreak(owner, 'UTC', TODAY)
+
+    it('is zero for an account that has made no plan', async () => {
+      assert.equal(await streakNow(), 0)
+    })
+
+    it('counts a run of complete essential days', async () => {
+      const event = await essential()
+      for (const date of FIRST_WEEK) await tick(date, event._id)
+
+      assert.equal(await streakNow(), 3)
+    })
+
+    it('stops at the first essential day left unfinished', async () => {
+      const event = await essential()
+      // Tuesday is missed, so only Wednesday counts.
+      await tick('2026-10-19', event._id)
+      await tick('2026-10-21', event._id)
+
+      assert.equal(await streakNow(), 1)
+    })
+
+    it('steps over a day with no essential block', async () => {
+      const event = await essential(['Mon', 'Wed'])
+      await tick('2026-10-19', event._id)
+      await tick('2026-10-21', event._id)
+
+      assert.equal(await streakNow(), 2)
+    })
+
+    it('skips an unfinished today without breaking the days behind it', async () => {
+      const event = await essential()
+      // Monday and Tuesday are done; today (Wednesday) is still in progress.
+      await tick('2026-10-19', event._id)
+      await tick('2026-10-20', event._id)
+
+      assert.equal(await streakNow(), 2)
+    })
+
+    it('never counts back before the account created its first event', async () => {
+      // A weekly event with no start date applies to every matching weekday,
+      // including before it existed, so only the floor keeps the walk honest.
+      const event = await essential(['Mon', 'Tue', 'Wed'], null)
+      await db
+        .collection('events')
+        .updateOne(
+          { _id: new ObjectId(event._id), ownerId: owner },
+          { $set: { createdAt: new Date('2026-10-19T00:00:00Z') } }
+        )
+
+      for (const date of [...WEEK_BEFORE, ...FIRST_WEEK]) await tick(date, event._id)
+
+      assert.equal(await streakNow(), 3)
+    })
+  })
+
+  describe('a series write that fails half way changes nothing', () => {
+    /**
+     * A unique index on `(ownerId, title)` gives the tests a constraint to
+     * break: writing a second event with a title that is already taken raises
+     * a duplicate-key error *inside* the transaction, after the earlier writes
+     * have run. Anything those wrote must be undone.
+     */
+    async function withUniqueTitleIndex(run: () => Promise<void>) {
+      await db.collection('events').createIndex({ ownerId: 1, title: 1 }, { unique: true })
+      try {
+        await run()
+      } finally {
+        await db.collection('events').dropIndex('ownerId_1_title_1')
+      }
+    }
+
+    const isDuplicateKey = (error: unknown) => (error as { code?: number }).code === 11000
+
+    it('rolls a whole-series replace back when the replacement cannot be written', async () => {
+      await withUniqueTitleIndex(async () => {
+        const doomed = await createEvent(owner, weekly({ title: 'Doomed' }))
+        await setCompletion(owner, { date: MONDAY, eventId: doomed._id, done: true })
+        await createEvent(owner, weekly({ title: 'Taken' }))
+
+        // Editing from the series' first day deletes the event and its
+        // completion, then inserts the replacement — whose title collides.
+        await assert.rejects(
+          () =>
+            updateEvent(owner, doomed._id, {
+              ...weekly({ title: 'Taken' }),
+              scope: 'future',
+              date: MONDAY,
+            }),
+          isDuplicateKey
+        )
+
+        assert.equal(
+          await db.collection('events').countDocuments({ ownerId: owner, title: 'Doomed' }),
+          1
+        )
+        assert.equal(
+          await db.collection('completions').countDocuments({ ownerId: owner, eventId: doomed._id }),
+          1
+        )
+      })
+    })
+
+    it('rolls a split back when the new event cannot be written', async () => {
+      await withUniqueTitleIndex(async () => {
+        const original = await createEvent(owner, weekly({ title: 'Original' }))
+        // A different weekday, so the split day shows only the original.
+        await createEvent(owner, weekly({ title: 'Taken', repeat: { type: 'weekly', days: ['Tue'] } }))
+
+        await assert.rejects(
+          () =>
+            updateEvent(owner, original._id, {
+              ...weekly({ title: 'Taken', start: '10:00', end: '11:00' }),
+              scope: 'future',
+              date: SPLIT_MONDAY,
+            }),
+          isDuplicateKey
+        )
+
+        // The truncation is undone with the insert, so the series still runs
+        // as far as it did before.
+        const split = await getDayView(owner, SPLIT_MONDAY)
+        assert.equal(split.blocks.length, 1)
+        assert.equal(split.blocks[0].title, 'Original')
+        assert.equal(split.blocks[0].start, '09:00')
+      })
+    })
+
+    it('rolls a delete back when the write after the completions fails', async () => {
+      const event = await createEvent(owner, weekly())
+      await setCompletion(owner, { date: MONDAY, eventId: event._id, done: true })
+
+      // Skip the completion delete and fail the event delete: the completions
+      // are already gone by then, so only a real rollback brings them back.
+      await db.admin().command({
+        configureFailPoint: 'failCommand',
+        mode: { skip: 1, times: 1 },
+        data: { failCommands: ['delete'], errorCode: 2, errmsg: 'injected failure' },
+      })
+      try {
+        await assert.rejects(() => deleteEvent(owner, event._id))
+      } finally {
+        await db.admin().command({ configureFailPoint: 'failCommand', mode: 'off' })
+      }
+
+      assert.equal(await db.collection('events').countDocuments({ _id: new ObjectId(event._id) }), 1)
+      assert.equal(await db.collection('completions').countDocuments({ ownerId: owner }), 1)
+    })
+  })
+
+  describe('the per-account event cap', () => {
+    it('refuses the event after the cap is reached', async () => {
+      await db.collection('events').insertMany(
+        Array.from({ length: MAX_EVENTS }, (_, index) => ({
+          ownerId: owner,
+          title: `Event ${index}`,
+          category: 'study',
+          kind: 'flexible',
+          start: '09:00',
+          end: '10:00',
+          repeat: { type: 'weekly', days: ['Mon'] },
+          essential: false,
+          exceptions: [],
+          source: 'user',
+          createdAt: new Date(),
+        }))
+      )
+
+      await assert.rejects(() => createEvent(owner, weekly()), failsWith(400))
+    })
+  })
+
+  describe('the profile upsert', () => {
+    it('accepts a patch that overlaps the insert defaults', async () => {
+      // `wake` and `sleep` are in both the patch and DEFAULT_PROFILE. Naming a
+      // path in `$set` and `$setOnInsert` at once is rejected by the server
+      // (code 40), which is what used to stop onboarding from ever finishing.
+      const saved = await saveProfile(owner, {
+        wake: '05:00',
+        sleep: '21:30',
+        persona: 'worker',
+        goals: ['Exercise'],
+      })
+
+      assert.equal(saved.wake, '05:00')
+      assert.equal(saved.sleep, '21:30')
+      assert.equal(saved.persona, 'worker')
+      assert.deepEqual(saved.goals, ['Exercise'])
+      // Fields the patch did not carry still arrive, from the insert defaults.
+      assert.equal(saved.clock, '24')
+      assert.equal(saved.onboarded, true)
+    })
+
+    it('updates the existing document rather than writing a second one', async () => {
+      await saveProfile(owner, { wake: '05:00', sleep: '21:30' })
+      const after = await saveProfile(owner, { clock: '12' })
+
+      assert.equal(after.wake, '05:00')
+      assert.equal(after.clock, '12')
+      assert.equal(await db.collection('profiles').countDocuments({ userId: owner }), 1)
+    })
+
+    it('answers a missing profile as already onboarded, so a legacy account is not sent through setup', async () => {
+      const missing = await profileFor(new ObjectId().toString())
+
+      assert.equal(missing.onboarded, true)
+    })
+  })
+
+  describe('concurrency', () => {
+    it('counts simultaneous failures without losing an increment', async () => {
+      const key = accountKey('ama')
+
+      await Promise.all(Array.from({ length: 12 }, () => recordFailure(key, 'account')))
+
+      const bucket = await db
+        .collection<{ _id: string; failures: number }>('rate_limits')
+        .findOne({ _id: key })
+      assert.equal(bucket?.failures, 12)
+    })
+
+    it('locks the address on the 30th failure, whichever account it came from', async () => {
+      const key = ipKey('203.0.113.9')
+
+      for (let attempt = 1; attempt < 30; attempt += 1) {
+        assert.equal(await recordFailure(key, 'ip'), null, `attempt ${attempt}`)
+      }
+
+      const locked = await recordFailure(key, 'ip')
+      assert.ok(locked instanceof Date)
+      assert.ok(locked.getTime() > Date.now())
+      assert.ok(locked.getTime() <= Date.now() + 60 * 60 * 1000 + 1000)
+    })
+
+    it('bumps a token version atomically when updates race', async () => {
+      const _id = new ObjectId()
+      await db.collection('users').insertOne({ _id, username: 'ama', pinHash: 'x', tokenVersion: 0 })
+
+      // The same update a PIN reset runs: new hash and version bump together.
+      await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          db
+            .collection('users')
+            .findOneAndUpdate(
+              { _id },
+              { $set: { pinHash: `hash-${index}` }, $inc: { tokenVersion: 1 } },
+              { returnDocument: 'after' }
+            )
+        )
+      )
+
+      const user = await db.collection('users').findOne({ _id })
+      assert.equal(user?.tokenVersion, 20)
+      assert.match(String(user?.pinHash), /^hash-\d+$/)
+    })
+  })
+})

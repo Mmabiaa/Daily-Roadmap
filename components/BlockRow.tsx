@@ -3,13 +3,12 @@
 import { useEffect, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
 import { Check } from 'lucide-react'
-import type { Block } from '@/lib/schedule'
-import { duration, formatTime } from '@/lib/utils'
+import type { BlockView } from '@/lib/resolver'
+import { durationMinutes } from '@/lib/schedule-time'
+import { formatTime } from '@/lib/utils'
 
 type Props = {
-    block: Block
-    index: number
-    next?: Block
+    block: BlockView
     done: boolean
     onToggle: () => void
     onEdit?: () => void
@@ -20,7 +19,7 @@ type Props = {
 /** "side-project" -> "side project" (capitalised in CSS) */
 const categoryLabel = (category: string) => category.replace(/-/g, ' ')
 
-export function BlockRow({ block, next, done, onToggle, onEdit, isNow, dim }: Props) {
+export function BlockRow({ block, done, onToggle, onEdit, isNow, dim }: Props) {
     const rowRef = useRef<HTMLDivElement>(null)
 
     // Scroll to the current block only when it *becomes* current —
@@ -41,8 +40,8 @@ export function BlockRow({ block, next, done, onToggle, onEdit, isNow, dim }: Pr
             className={`timeline-row ${isNow ? 'is-now' : ''} ${dim ? 'is-dim' : ''}`}
         >
             <div className="time-col">
-                <span>{formatTime(block.time)}</span>
-                <small>{duration(block, next)} min</small>
+                <span>{formatTime(block.start)}</span>
+                <small>{durationMinutes(block.start, block.end)} min</small>
             </div>
 
             <div className="timeline-line">

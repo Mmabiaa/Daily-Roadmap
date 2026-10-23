@@ -1,52 +1,57 @@
 'use client'
 
-import { Flame } from 'lucide-react'
-import { Block, Day } from '@/lib/schedule'
-import { keyFor } from '@/lib/utils'
+import { AlertTriangle, Flame, RotateCcw } from 'lucide-react'
+import type { BlockView, DayBlock } from '@/lib/resolver'
 import { BlockRow } from './BlockRow'
 import { Ring } from './Ring'
 
-type Checks = Record<string, boolean>
+type EnergyLevel = 'low' | 'okay' | 'high'
 
 type Props = {
-    date: string
-    activeDay: Day
-    blocks: Block[]
-    shown: Block[]
-    checks: Checks
+    blocks: BlockView[]
+    shown: BlockView[]
     completion: number
     streak: number
-    currentIndex: number
-    nextBlock?: Block
-    minsToNext: number
+    /** How many times the account came back after a missed essential day. */
+    comebacks: number
+    /** The block happening now, the next to start, and minutes until now ends. */
+    current: DayBlock | null
+    next: DayBlock | null
+    minutesLeft: number | null
     minimum: boolean
     setMinimum: (v: boolean) => void
     onToggle: (i: number) => void
-    onEdit: (block: Block) => void
+    onEdit: (block: BlockView) => void
+    /** Today's energy check-in, if it has been answered. */
+    energyToday: EnergyLevel | null
+    onEnergy: (level: EnergyLevel) => void
+    /** Consecutive low days, ending today — two or more asks for a gentle day. */
+    lowRun: number
+    /** Hours of classes and study across the whole week, for the "too full" note. */
+    weekLoad: number
     /** false during SSR + first client render — hides time-sensitive text */
     mounted?: boolean
 }
 
-/**
- * "2026-10-19" -> "Monday, October 19".
- * Parsed and formatted in local time with a fixed locale, so server and
- * client always produce the same string (no hydration mismatch).
- */
-function formatDate(date: string) {
-    const d = new Date(`${date}T00:00:00`)
-    if (Number.isNaN(d.getTime())) return 'Today'
-    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-}
+const LEVELS: { id: EnergyLevel; label: string }[] = [
+    { id: 'low', label: 'Low' },
+    { id: 'okay', label: 'Okay' },
+    { id: 'high', label: 'High' },
+]
+
+/** Above this many hours of fixed work and study, the week is worth a warning. */
+const HEAVY_WEEK_HOURS = 40
 
 export function TodayView({
-    date, activeDay, blocks, shown, checks, completion, streak,
-    currentIndex, nextBlock, minsToNext, minimum, setMinimum, onToggle, onEdit,
+    blocks, shown, completion, streak, comebacks,
+    current, next, minutesLeft, minimum, setMinimum, onToggle, onEdit,
+    energyToday, onEnergy, lowRun, weekLoad,
     mounted = true,
 }: Props) {
-    const doneCount = blocks.filter((b) => checks[keyFor(date, activeDay, b.time)]).length
+    const doneCount = blocks.filter((b) => b.done).length
     const remaining = blocks.length - doneCount
     const allDone = blocks.length > 0 && remaining === 0
-    const current = currentIndex >= 0 ? blocks[currentIndex] : undefined
+    const heavyWeek = weekLoad > HEAVY_WEEK_HOURS
 
     return (
         <main className="content">
@@ -74,14 +79,14 @@ export function TodayView({
                             <span className="now-strip-label">Happening now</span>
                             <strong className="now-strip-title">{current.title}</strong>
                             <span className="now-strip-next">
-                                {nextBlock
-                                    ? `Next: ${nextBlock.title}`
+                                {next
+                                    ? `Next: ${next.title}`
                                     : 'This is the last block of the day'}
                             </span>
                         </div>
-                        {nextBlock && (
+                        {minutesLeft !== null && minutesLeft > 0 && (
                             <div className="now-strip-time">
-                                <strong>{minsToNext}</strong>
+                                <strong>{minutesLeft}</strong>
                                 <span>min left</span>
                             </div>
                         )}
@@ -96,6 +101,36 @@ export function TodayView({
                         <strong>{streak} days</strong> of minimum kept — keep the thread
                     </span>
                 </div>
+            )}
+
+            {comebacks > 0 && (
+                <div className="comeback-card" aria-label="Times you came back">
+                    <RotateCcw aria-hidden="true" />
+                    <div>
+                        <strong>You came back {comebacks} {comebacks === 1 ? 'time' : 'times'}.</strong>
+                        <span>That is the number that matters most. Missing a day never ends it.</span>
+                    </div>
+                </div>
+            )}
+
+
+            {lowRun >= 2 && (
+                <p className="wellbeing-note gentle">
+                    <span>
+                        Two low days in a row. Be gentle today — your Minimum day is already enough,
+                        and rest is part of the plan.
+                    </span>
+                </p>
+            )}
+
+            {heavyWeek && (
+                <p className="wellbeing-note warn">
+                    <AlertTriangle aria-hidden="true" />
+                    <span>
+                        Your week is full — about {Math.round(weekLoad)}h of classes and study. Trim
+                        something small, or lean on Minimum days.
+                    </span>
+                </p>
             )}
 
             <div className="mode-bar">
@@ -140,14 +175,12 @@ export function TodayView({
                         const i = blocks.indexOf(block)
                         return (
                             <BlockRow
-                                key={block.time}
+                                key={block.eventId}
                                 block={block}
-                                index={i}
-                                next={blocks[i + 1]}
-                                done={!!checks[keyFor(date, activeDay, block.time)]}
+                                done={block.done}
                                 onToggle={() => onToggle(i)}
-                                onEdit={block.id ? () => onEdit(block) : undefined}
-                                isNow={i === currentIndex}
+                                onEdit={() => onEdit(block)}
+                                isNow={current?.eventId === block.eventId}
                                 dim={minimum && !block.essential}
                             />
                         )

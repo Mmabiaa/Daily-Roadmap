@@ -1,58 +1,45 @@
 import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/mongodb'
-import { getSession } from '@/lib/auth'
-import { EventSchema } from '@/lib/models'
 
-export async function GET() {
-  try {
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const db = await getDb()
-    const events = await db.collection('events').find({}).toArray()
-    
-    return NextResponse.json(events.map(e => ({ ...e, _id: e._id.toString() })))
-  } catch (error) {
-    console.error('Fetch events error:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch events' },
-      { status: 500 }
-    )
-  }
-}
+import { route } from '@/lib/api'
+import { EventInputSchema } from '@/lib/models'
+import { isDate } from '@/lib/schedule-time'
+import { createEvent, getDayView, getWeekView, listEvents, timezoneFor } from '@/lib/schedule-service'
+import { todayIn } from '@/lib/timezone'
 
-export async function POST(request: Request) {
-  try {
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const body = await request.json()
-    const validated = EventSchema.parse(body)
-    
-    const db = await getDb()
-    const result = await db.collection('events').insertOne({
-      day: validated.day,
-      time: validated.time,
-      title: validated.title,
-      category: validated.category,
-      note: validated.note,
-      essential: validated.essential,
-      createdAt: new Date(),
-    })
-    
-    return NextResponse.json({
-      _id: result.insertedId.toString(),
-      ...validated
-    }, { status: 201 })
-  } catch (error) {
-    console.error('Create event error:', error)
-    return NextResponse.json(
-      { error: 'Failed to create event' },
-      { status: 500 }
-    )
+/**
+ * Events are private to their owner: every read and write is filtered by the
+ * signed-in account, so one account can never see or touch another's plan.
+ *
+ * A plain GET returns the owner's stored events. `?date=` resolves a single day
+ * and `?week=` resolves the seven days from that week's Monday; both come back
+ * with each block's tick already applied and the owner's timezone and today, so
+ * the client never has to join events against completions or guess the date.
+ * Given with no value, `?date`/`?week` mean the owner's own today / current
+ * week: the server holds the account's zone, and the browser clock is the one
+ * thing that must not decide which day the plan is on.
+ */
+export const GET = route({ failure: 'Failed to fetch events' }, async ({ request, user }) => {
+  const query = new URL(request.url).searchParams
+  const date = query.get('date')
+  const week = query.get('week')
+
+  if (date === null && week === null) return NextResponse.json(await listEvents(user.id))
+
+  const anchor = date || week || todayIn(await timezoneFor(user.id))
+  if (!isDate(anchor)) {
+    return NextResponse.json({ error: 'Use a YYYY-MM-DD date' }, { status: 400 })
   }
-}
+
+  return NextResponse.json(
+    week !== null ? await getWeekView(user.id, anchor) : await getDayView(user.id, anchor)
+  )
+})
+
+/**
+ * Creates an event owned by the session user. Fixed events must not overlap:
+ * a clash with another fixed event is a 409 naming the event it conflicts with.
+ */
+export const POST = route(
+  { body: EventInputSchema, invalidBody: 'Invalid event', failure: 'Failed to create event' },
+  async ({ user, body }) => NextResponse.json(await createEvent(user.id, body), { status: 201 })
+)

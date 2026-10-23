@@ -12,13 +12,14 @@ project, the conventions we follow, and how to get a change merged.
    npm install
    ```
 
-3. Create `.env.local` from `.env.example` and fill in `MONGODB_URI` and
-   `JWT_SECRET`.
-4. Start the dev server and seed the database once:
+3. Create `.env.local` from `.env.example` and fill in `MONGODB_URI`,
+   `JWT_SECRET` and `ADMIN_PIN` (6–8 digits).
+4. Start the dev server and seed the database once. In development the seed key
+   may be passed as `?key=`; in production it must be the `x-seed-key` header.
 
    ```bash
    npm run dev
-   curl http://localhost:3000/api/seed
+   curl "http://localhost:3000/api/seed?key=$SEED_SECRET"
    ```
 
 5. Open <http://localhost:3000> and sign in with your `ADMIN_USERNAME` / `ADMIN_PIN`.
@@ -61,6 +62,8 @@ chore: bump mongodb driver
 1. Create a branch from `main` with a descriptive name (e.g.
    `feat/week-streak`).
 2. Make your change and verify it locally:
+   - `npm run typecheck` reports no errors,
+   - `npm test` passes (Node's built-in test runner, `lib/**/*.test.ts`),
    - `npm run build` succeeds, and
    - the affected flow works in the browser.
 3. Update `README.md` and `lib/openapi.ts` if your change affects them.

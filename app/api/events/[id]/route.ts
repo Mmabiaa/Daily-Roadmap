@@ -1,81 +1,43 @@
 import { NextResponse } from 'next/server'
-import { getDb } from '@/lib/mongodb'
-import { getSession } from '@/lib/auth'
-import { EventSchema } from '@/lib/models'
-import { ObjectId } from 'mongodb'
 
-export async function PATCH(
-  request: Request,
-  ctx: RouteContext<'/api/events/[id]'>
-) {
-  try {
-    const { id } = await ctx.params
+import { route } from '@/lib/api'
+import { EventUpdateSchema } from '@/lib/models'
+import { isDate } from '@/lib/schedule-time'
+import { deleteEvent, updateEvent } from '@/lib/schedule-service'
 
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+/**
+ * Owner-scoped writes: the filter always includes the owner id, so an event
+ * that belongs to another account simply does not match and returns 404.
+ *
+ * `scope` says how much of a repeating event an edit or delete covers:
+ * `this` changes only the given date (an exception), `future` splits the
+ * series there, keeping past days and their ticks as they were.
+ */
+export const PATCH = route(
+  { body: EventUpdateSchema, invalidBody: 'Invalid event', failure: 'Failed to update event' },
+  async ({ user, params, body }) =>
+    NextResponse.json(await updateEvent(user.id, String(params.id), body))
+)
+
+export const DELETE = route(
+  { failure: 'Failed to delete event' },
+  async ({ request, user, params }) => {
+    const query = new URL(request.url).searchParams
+    const scope = query.get('scope')
+    const date = query.get('date')
+
+    if (scope && scope !== 'this' && scope !== 'future') {
+      return NextResponse.json({ error: 'scope must be this or future' }, { status: 400 })
     }
-    
-    const body = await request.json()
-    const validated = EventSchema.parse(body)
-    
-    const db = await getDb()
-    const result = await db.collection('events').updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          day: validated.day,
-          time: validated.time,
-          title: validated.title,
-          category: validated.category,
-          note: validated.note,
-          essential: validated.essential,
-          updatedAt: new Date(),
-        },
-      }
-    )
-    
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
+    if (date && !isDate(date)) {
+      return NextResponse.json({ error: 'Use a YYYY-MM-DD date' }, { status: 400 })
     }
-    
-    return NextResponse.json({ _id: id, ...validated })
-  } catch (error) {
-    console.error('Update event error:', error)
+
     return NextResponse.json(
-      { error: 'Failed to update event' },
-      { status: 500 }
+      await deleteEvent(user.id, String(params.id), {
+        ...(scope === 'this' || scope === 'future' ? { scope } : {}),
+        ...(date ? { date } : {}),
+      })
     )
   }
-}
-
-export async function DELETE(
-  request: Request,
-  ctx: RouteContext<'/api/events/[id]'>
-) {
-  try {
-    const { id } = await ctx.params
-
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-    
-    const db = await getDb()
-    const result = await db.collection('events').deleteOne({
-      _id: new ObjectId(id),
-    })
-    
-    if (result.deletedCount === 0) {
-      return NextResponse.json({ error: 'Event not found' }, { status: 404 })
-    }
-    
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error('Delete event error:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete event' },
-      { status: 500 }
-    )
-  }
-}
+)
