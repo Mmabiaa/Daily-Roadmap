@@ -325,16 +325,6 @@ export function Settings({ profile, onProfile, onToast, onSignOut }: Props) {
 
     return (
         <main className="content st-page">
-            {/* Identity header */}
-            <header className="st-hero">
-                <div className="st-avatar" aria-hidden="true">
-                    {initial || <User />}
-                </div>
-                <div className="st-hero-text">
-                    <h2>{draft.name.trim() || 'Your account'}</h2>
-                    <p>{account ? `@${account.username}` : ' '}</p>
-                </div>
-            </header>
 
             <div className="st-grid">
                 <div className="st-col">
