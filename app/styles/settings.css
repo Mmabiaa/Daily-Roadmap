@@ -1,8 +1,9 @@
 /* ───────────── Settings (redesign) ─────────────
    Uses only the existing design tokens (--card, --surface, --line, --primary…),
    so no colors change. All classes are prefixed `st-` and scoped, so nothing
-   else in the app is affected. Imported last in `app/globals.css`, after
-   09-screens.css, so its rules win where the two overlap. */
+   else in the app is affected. The old `.settings-*`, `.segmented`,
+   `.share-code`, `.code-input` and `.import-row` rules can be removed once
+   nothing else uses them. */
 
 .st-page {
     container-type: inline-size;
