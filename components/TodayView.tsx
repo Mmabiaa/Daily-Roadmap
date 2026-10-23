@@ -113,21 +113,6 @@ export function TodayView({
                 </div>
             )}
 
-            <section className="energy-card" aria-label="Energy check-in">
-                <div className="energy-options" role="group" aria-label="Today's energy">
-                    {LEVELS.map((level) => (
-                        <button
-                            key={level.id}
-                            type="button"
-                            className={energyToday === level.id ? 'selected' : ''}
-                            aria-pressed={energyToday === level.id}
-                            onClick={() => onEnergy(level.id)}
-                        >
-                            {level.label}
-                        </button>
-                    ))}
-                </div>
-            </section>
 
             {lowRun >= 2 && (
                 <p className="wellbeing-note gentle">
