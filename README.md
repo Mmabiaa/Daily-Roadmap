@@ -50,7 +50,26 @@ MongoDB per user, and events never cross between accounts.
 ### Prerequisites
 
 - Node.js 20+
-- A MongoDB database (local or Atlas)
+- A MongoDB **replica set**. MongoDB Atlas gives you one by default; a local
+  `mongod` needs a small config change (below). A *standalone* deployment will
+  not work: every multi-document write goes through `withTransaction`, and
+  MongoDB only offers transactions on a replica set member or a mongos.
+
+To turn a local MongoDB into a single-node set, add this to `mongod.cfg`:
+
+```yaml
+replication:
+  replSetName: rs0
+```
+
+Restart the service, then run `rs.initiate()` **once** to create the set. If
+mongod binds only to `127.0.0.1`, name the member explicitly so it matches how
+you connect — `rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })`.
+Existing data is kept. Then point `MONGODB_URI` at that member.
+
+The app checks this once per process and refuses to start a transaction with a
+message naming the problem, rather than passing on the driver's misleading
+`retryWrites=false` suggestion.
 
 ### 1. Install
 
@@ -68,7 +87,7 @@ cp .env.example .env.local
 
 | Variable         | Required | Description                                             |
 | ---------------- | -------- | ------------------------------------------------------- |
-| `MONGODB_URI`    | yes      | MongoDB connection string.                              |
+| `MONGODB_URI`    | yes      | MongoDB connection string. Must point at a replica set — see Prerequisites. |
 | `JWT_SECRET`     | yes      | Secret used to sign auth tokens. Use a long random value.|
 | `ADMIN_USERNAME` | no       | Username for the first user created by `/api/seed`.     |
 | `ADMIN_PIN`      | to seed  | **6–8 digit** PIN for that first user. The seed refuses to run without it, so the account is never created with a default PIN. |

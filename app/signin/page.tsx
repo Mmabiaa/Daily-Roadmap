@@ -12,7 +12,9 @@ export default function SignInPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // No useEffect needed — proxy.ts already redirects authenticated users away from /signin
+  // This page is reachable with a session on purpose: `/` sends an account
+  // that has not finished its setup back here, and a signed-in person may want
+  // to switch accounts.
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,8 +37,10 @@ export default function SignInPage() {
         return
       }
 
-      // Full navigation so the browser sends the new cookie with the request
-      window.location.replace('/')
+      // Full navigation so the browser sends the new cookie with the request.
+      // An account that never finished its setup resumes it; everyone else
+      // lands in the app.
+      window.location.replace(data.onboarded === false ? '/onboarding' : '/')
     } catch {
       setError('Something went wrong')
       setLoading(false)

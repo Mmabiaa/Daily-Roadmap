@@ -36,6 +36,40 @@ export async function getDb(): Promise<Db> {
 }
 
 /**
+ * Fails fast when the deployment cannot serve transactions.
+ *
+ * Only a replica set member or a mongos can run them. A standalone refuses the
+ * first one with "Transaction numbers are only allowed on a replica set member
+ * or mongos", wrapped in a message advising `retryWrites=false` — which would
+ * only hide the problem. Asking once per process turns that into a plain
+ * statement of what to change.
+ */
+let transactions: Promise<void> | null = null
+
+export function assertTransactionsSupported(): Promise<void> {
+  if (!transactions) {
+    transactions = (async () => {
+      const client = await getClientPromise()
+      const hello = await client.db('admin').command({ hello: 1 })
+      // `msg: 'isdbgrid'` is how a mongos introduces itself.
+      if (!hello.setName && hello.msg !== 'isdbgrid') {
+        throw new Error(
+          'MONGODB_URI points at a standalone deployment, which cannot serve the ' +
+            'transactions the schedule relies on. Run mongod as a replica set (a ' +
+            'single-node set is enough) or point MONGODB_URI at a replica set such ' +
+            'as MongoDB Atlas. See the README.'
+        )
+      }
+    })().catch((error) => {
+      // Let the next call retry rather than caching a failed check forever.
+      transactions = null
+      throw error
+    })
+  }
+  return transactions
+}
+
+/**
  * Creates every index the app relies on, once per server process.
  *
  * Three of these are correctness guarantees, not just query speed:

@@ -126,8 +126,10 @@ export const openApiDocument = {
         requestBody: jsonBody({ $ref: '#/components/schemas/SignInRequest' }),
         responses: {
           200: {
-            description: 'Signed in; auth cookie set',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/SuccessResponse' } } },
+            description:
+              'Signed in; auth cookie set. `onboarded` tells the client where to land: an ' +
+              'account that never finished the setup flow resumes it, everyone else goes to the app.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/SignInResponse' } } },
           },
           400: errorResponse,
           401: { description: 'Invalid credentials', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
@@ -613,6 +615,18 @@ export const openApiDocument = {
           pin: { type: 'string', example: '482915', description: 'The account PIN. Accounts created before the 6-digit minimum still sign in with their 4–8 digit PIN.' },
         },
         required: ['username', 'pin'],
+      },
+      SignInResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: true },
+          onboarded: {
+            type: 'boolean',
+            description:
+              'False when the account has not finished the one-minute setup, so the client sends it to `/onboarding` instead of the app.',
+          },
+        },
+        required: ['success', 'onboarded'],
       },
       SignUpRequest: {
         type: 'object',

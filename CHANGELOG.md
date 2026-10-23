@@ -71,8 +71,31 @@ what is new. Kept deliberately short: one line per item, plain words.
 - [x] `components/BottomNav.tsx` / `components/Topbar.tsx` — five tabs incl. Settings
 - [x] `components/Guide.tsx` — per-account rules instead of the admin-only bundle
 - [x] `components/TodayView.tsx` — energy check-in and wellbeing notes
-- [x] `app/page.tsx` — sends a not-yet-onboarded account to `/onboarding`
+- [x] `app/page.tsx` — sends a not-yet-onboarded account to `/signin` to resume setup
 - [x] `app/globals.css` — imports the new screen stylesheet
+
+---
+
+## Fixes
+
+- [x] `lib/profile.ts` — `saveProfile`'s upsert named the same field in `$set` and
+      `$setOnInsert`, which MongoDB rejects outright (code 40), so onboarding could
+      never finish. The insert defaults are now seeded by subtraction.
+- [x] Local MongoDB runs as a **replica set**. It was a standalone, so every
+      `withTransaction` failed (code 20) and onboarding returned 500 — the app's
+      multi-document writes cannot run without a replica set. The set is the
+      single node `rs0`, and `MONGODB_URI` now names that member.
+- [x] `lib/mongodb.ts` — `assertTransactionsSupported()` checks the deployment once
+      per process and describes a standalone plainly, instead of passing on the
+      driver's misleading `retryWrites=false` advice.
+- [x] README and `.env.example` — the replica-set requirement is stated, so the
+      documented setup no longer reproduces the failure.
+- [x] Setup flow is entered from the sign-in page, not on app load. `proxy.ts` no
+      longer bounces a signed-in person away from `/signin`/`/signup` (which used
+      to trap an unfinished account), `app/page.tsx` sends an unfinished account to
+      `/signin`, and sign-in answers with `onboarded` so the client resumes the
+      flow. A brand-new sign-up still goes straight to `/onboarding`, and an
+      account that already used the app is never sent there.
 
 ---
 

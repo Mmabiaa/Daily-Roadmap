@@ -39,13 +39,16 @@ export function proxy(request: NextRequest) {
     (page) => pathname === page || pathname.startsWith(`${page}/`)
   )
 
-  // Redirect authenticated users away from the auth pages
-  if (isPublicPage && token) {
-    return redirectTo('/', request)
+  // The auth pages stay reachable even when a session exists. Bouncing a
+  // signed-in person to the app here would trap them: an account that stopped
+  // half-way through setup is sent by `/` right back to `/signin` to sign in
+  // again and resume, and a signed-in person may want to switch accounts.
+  if (isPublicPage) {
+    return NextResponse.next()
   }
 
-  // Redirect unauthenticated users to /signin for protected pages
-  if (!isPublicPage && !token) {
+  // Everything else needs a session.
+  if (!token) {
     return redirectTo('/signin', request)
   }
 

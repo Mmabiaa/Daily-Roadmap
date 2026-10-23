@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { ensureIndexes, getDb } from '@/lib/mongodb'
 import { dummyPinHash, setSession, verifyPin } from '@/lib/auth'
 import { generateToken, tokenVersionOf } from '@/lib/session'
+import { profileFor } from '@/lib/profile'
 import { clientIpFrom } from '@/lib/client-ip'
 import { accountKey, ipKey, retryAfterSeconds } from '@/lib/rate-limit-policy'
 import { clearFailures, lockedUntil, recordFailure } from '@/lib/rate-limit'
@@ -63,7 +64,11 @@ export async function POST(request: Request) {
     // the last PIN change (or "sign out everywhere") is refused on later requests.
     await setSession(generateToken(user._id.toString(), tokenVersionOf(user)))
 
-    return NextResponse.json({ success: true })
+    // Tells the client where to land. An account that never finished the setup
+    // flow resumes it from here; everyone else goes to the app.
+    const profile = await profileFor(user._id.toString())
+
+    return NextResponse.json({ success: true, onboarded: profile.onboarded })
   } catch (error) {
     console.error('Sign in error:', error)
     return NextResponse.json(

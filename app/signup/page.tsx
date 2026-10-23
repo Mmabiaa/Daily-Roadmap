@@ -48,8 +48,11 @@ export default function SignUpPage() {
         return
       }
 
-      // Full navigation so the browser sends the new cookie with the request
-      window.location.replace('/')
+      // Full navigation so the browser sends the new cookie with the request.
+      // A brand-new account always owes the one-minute setup, so it goes
+      // straight to it rather than through `/`, which would only send it to
+      // the sign-in page.
+      window.location.replace('/onboarding')
     } catch {
       setError('Something went wrong')
       setLoading(false)

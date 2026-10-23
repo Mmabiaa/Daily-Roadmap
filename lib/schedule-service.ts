@@ -13,7 +13,11 @@ import {
   type Repeat,
   type Source,
 } from './models.ts'
-import getClientPromise, { ensureIndexes, getDb } from './mongodb.ts'
+import getClientPromise, {
+  assertTransactionsSupported,
+  ensureIndexes,
+  getDb,
+} from './mongodb.ts'
 import {
   appliesOn,
   comebacksFrom,
@@ -68,6 +72,10 @@ export const MAX_EXCEPTIONS = 500
  * the callbacks here only ever re-run the same writes.
  */
 async function withTransaction<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+  // Say plainly what is wrong if the deployment cannot run this, rather than
+  // letting the driver's misleading `retryWrites=false` advice through.
+  await assertTransactionsSupported()
+
   const client = await getClientPromise()
   const session = client.startSession()
   try {
