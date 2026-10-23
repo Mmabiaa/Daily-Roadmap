@@ -21,6 +21,12 @@ const categories = [
 
 const kinds = ['fixed', 'flexible']
 
+const personas = ['student', 'worker', 'freelancer', 'shift']
+
+const clocks = ['12', '24']
+
+const mustDos = ['wake', 'study', 'move', 'project', 'winddown', 'sleep']
+
 /**
  * The one place the streak rule is written down, used by both the day and the
  * week view so the two cannot describe it differently.
@@ -30,6 +36,16 @@ const STREAK_DESCRIPTION =
   'A day with nothing essential is stepped over rather than counted or broken. An unfinished ' +
   '*today* neither counts nor breaks the run, so a day in progress is not held against you; the ' +
   'run behind it still counts. The walk never reaches back before the account’s first event.'
+
+/**
+ * The comeback counter, written down once so the day and the week view can
+ * never describe it differently from the streak.
+ */
+const COMEBACKS_DESCRIPTION =
+  'How many times the account returned to its essentials after an unfinished one: each completed ' +
+  'essential day that follows an unfinished essential day counts once. Days with nothing ' +
+  'essential are ignored, so a rest day does not inflate the count, and the first counting day ' +
+  'is never a comeback.'
 
 const errorResponse = {
   description: 'Error',
@@ -87,6 +103,9 @@ export const openApiDocument = {
     { name: 'Auth', description: 'Sign up, sign in, PIN reset, session check and sign out' },
     { name: 'Events', description: 'The signed-in user’s own schedule blocks' },
     { name: 'Progress', description: 'Per-user completion, reviews, energy and theme' },
+    { name: 'Profile', description: 'The account’s own settings and guardrails' },
+    { name: 'Onboarding', description: 'Finishing the one-minute setup' },
+    { name: 'Timetable', description: 'Importing a class timetable, and sharing it by code' },
     { name: 'Admin', description: 'Seeding (guarded by a server secret)' },
     { name: 'Docs', description: 'This specification' },
   ],
@@ -215,7 +234,8 @@ export const openApiDocument = {
           'Only events owned by the session user are ever returned. With no query the raw event ' +
           'list is returned. With `?date=YYYY-MM-DD` the resolved day is returned, with each block ' +
           'carrying its event id and its ticked state; with `?week=YYYY-MM-DD` the seven days from ' +
-          'that date’s Monday are returned. Dates are read in the account’s own timezone.',
+          'that date’s Monday are returned. Both resolved views also carry the account’s `streak` ' +
+          'and `comebacks` counters. Dates are read in the account’s own timezone.',
         parameters: [
           {
             name: 'date',
@@ -394,6 +414,129 @@ export const openApiDocument = {
           },
           400: errorResponse,
           401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/profile': {
+      get: {
+        tags: ['Profile'],
+        summary: 'Get the signed-in account’s profile',
+        description:
+          'Wake and sleep times, persona, goals, the screen clock, reminder settings and the ' +
+          'account’s own guardrails. A profile is created for every new sign-up; an account from ' +
+          'before profiles existed is answered with sane defaults and `onboarded: true`, so it is ' +
+          'never sent through onboarding.',
+        responses: {
+          200: {
+            description: 'The account’s profile',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } },
+          },
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+      patch: {
+        tags: ['Profile'],
+        summary: 'Update the signed-in account’s profile',
+        description:
+          'Only the provided fields are written, and the document is created if it is missing. ' +
+          '`onboarded` is not accepted here — only `/api/onboarding` sets it. `wake` and `sleep` ' +
+          'may not be the same time when both are sent.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/ProfileUpdate' }),
+        responses: {
+          200: {
+            description: 'The profile after the change',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/onboarding': {
+      post: {
+        tags: ['Onboarding'],
+        summary: 'Finish onboarding and draft the first week',
+        description:
+          'Saves the answers, drafts the account’s first week from them and marks the account ' +
+          'onboarded. The week is drafted only when the account has no events of its own, so ' +
+          'running the flow again cannot pile a second plan on top of the first. Every drafted ' +
+          'block repeats on all seven days; the three to five must-dos picked become the ' +
+          'essential blocks a Minimum day keeps.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/OnboardingInput' }),
+        responses: {
+          201: {
+            description: 'The saved profile, plus how many blocks the draft created',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/OnboardingResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/timetable': {
+      post: {
+        tags: ['Timetable'],
+        summary: 'Read a pasted timetable into fixed class events',
+        description:
+          'One line per class — `Mon, Wed 08:30-10:00 CE 481 Data Communication` — with the ' +
+          'weekdays anywhere on the line. Lines that cannot be read are skipped, so a heading or ' +
+          'a note is harmless; only a paste with nothing readable at all returns 400. Lines that ' +
+          'agree on their times and title are merged into one weekly event. With `replace`, the ' +
+          'account’s existing classes (and their ticks) are cleared first.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/TimetableInput' }),
+        responses: {
+          201: {
+            description: 'How many classes were read, created and replaced',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/TimetableResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/timetable/share': {
+      post: {
+        tags: ['Timetable'],
+        summary: 'Make a short code for the class timetable',
+        description:
+          'Copies the account’s current `class` events into a share and returns a six-character ' +
+          'code. Only classes are copied, as a snapshot, so a classmate gets the timetable and ' +
+          'never the personal plan behind it — and a later edit to these classes is not reflected. ' +
+          'Codes avoid letters and digits that read alike. An account with no classes gets 400.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/ShareCreateInput' }, false),
+        responses: {
+          201: {
+            description: 'The code and how many classes it carries',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ShareResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/timetable/import': {
+      post: {
+        tags: ['Timetable'],
+        summary: 'Import a shared class timetable by code',
+        description:
+          'Copies the share’s classes onto the account, replacing its own classes so importing ' +
+          'twice does not double them. Everything else the account has planned is left untouched. ' +
+          'An unknown code returns 404.',
+        requestBody: jsonBody({ $ref: '#/components/schemas/ShareImportInput' }),
+        responses: {
+          200: {
+            description: 'How many classes were added',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/ImportResult' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          404: { description: 'The code was not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
           500: errorResponse,
         },
       },
@@ -647,8 +790,9 @@ export const openApiDocument = {
           date: { type: 'string', example: '2026-10-19' },
           blocks: { type: 'array', items: { $ref: '#/components/schemas/BlockView' } },
           streak: { type: 'integer', description: STREAK_DESCRIPTION },
+          comebacks: { type: 'integer', description: COMEBACKS_DESCRIPTION },
         },
-        required: ['timezone', 'today', 'date', 'blocks', 'streak'],
+        required: ['timezone', 'today', 'date', 'blocks', 'streak', 'comebacks'],
       },
       WeekView: {
         type: 'object',
@@ -668,8 +812,9 @@ export const openApiDocument = {
             },
           },
           streak: { type: 'integer', description: STREAK_DESCRIPTION },
+          comebacks: { type: 'integer', description: COMEBACKS_DESCRIPTION },
         },
-        required: ['timezone', 'today', 'weekStart', 'days', 'streak'],
+        required: ['timezone', 'today', 'weekStart', 'days', 'streak', 'comebacks'],
       },
       CompletionToggle: {
         type: 'object',
@@ -733,6 +878,120 @@ export const openApiDocument = {
           energy: { $ref: '#/components/schemas/Energy' },
           theme: { type: 'string', enum: ['light', 'dark'] },
         },
+      },
+      Rules: {
+        type: 'object',
+        description: 'The account’s own guardrails, shown on the Guide screen and edited there.',
+        properties: {
+          phone: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 200 } },
+          study: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 200 } },
+        },
+        required: ['phone', 'study'],
+      },
+      Reminder: {
+        type: 'object',
+        description: 'Whether to nudge before a block, and how many minutes ahead. Shown in-app only.',
+        properties: {
+          enabled: { type: 'boolean' },
+          lead: { type: 'integer', minimum: 0, maximum: 120, example: 10 },
+        },
+        required: ['enabled', 'lead'],
+      },
+      Profile: {
+        type: 'object',
+        properties: {
+          userId: { type: 'string' },
+          onboarded: { type: 'boolean', description: 'False until the onboarding flow is finished; an account with no profile document reads as true.' },
+          wake: { type: 'string', example: '06:30' },
+          sleep: { type: 'string', example: '22:30' },
+          persona: { type: 'string', enum: personas },
+          goals: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
+          clock: { type: 'string', enum: clocks, description: 'The clock the screens read.' },
+          reminders: { $ref: '#/components/schemas/Reminder' },
+          rules: { $ref: '#/components/schemas/Rules' },
+        },
+        required: ['userId', 'onboarded', 'wake', 'sleep', 'persona', 'goals', 'clock', 'reminders', 'rules'],
+      },
+      ProfileUpdate: {
+        type: 'object',
+        description:
+          'Any subset of the editable settings; provided fields are written. `onboarded` is not ' +
+          'editable here, and `wake` and `sleep` may not be equal when both are sent.',
+        properties: {
+          wake: { type: 'string', example: '06:30' },
+          sleep: { type: 'string', example: '22:30', description: 'Must differ from `wake` when both are sent.' },
+          persona: { type: 'string', enum: personas },
+          goals: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
+          clock: { type: 'string', enum: clocks },
+          reminders: { $ref: '#/components/schemas/Reminder' },
+          rules: { $ref: '#/components/schemas/Rules' },
+        },
+      },
+      OnboardingInput: {
+        type: 'object',
+        properties: {
+          wake: { type: 'string', example: '06:30' },
+          sleep: { type: 'string', example: '22:30' },
+          persona: { type: 'string', enum: personas },
+          goals: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 60 } },
+          essentials: {
+            type: 'array',
+            minItems: 3,
+            maxItems: 5,
+            items: { type: 'string', enum: mustDos },
+            description: 'The must-dos that become the account’s Minimum day.',
+          },
+        },
+        required: ['wake', 'sleep', 'persona', 'goals', 'essentials'],
+      },
+      OnboardingResult: {
+        allOf: [
+          { $ref: '#/components/schemas/Profile' },
+          {
+            type: 'object',
+            properties: { created: { type: 'integer', description: 'Blocks the drafted week created (0 when the account already had events).' } },
+            required: ['created'],
+          },
+        ],
+      },
+      TimetableInput: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', maxLength: 20000, description: 'One line per class; unreadable lines are skipped.' },
+          replace: { type: 'boolean', description: 'Clear the account’s existing classes (and their ticks) first.' },
+        },
+        required: ['text'],
+      },
+      TimetableResult: {
+        type: 'object',
+        properties: {
+          created: { type: 'integer', description: 'Class events written.' },
+          removed: { type: 'integer', description: 'Existing classes cleared by `replace`.' },
+          found: { type: 'integer', description: 'Classes the parser read out of the paste.' },
+        },
+        required: ['created', 'removed', 'found'],
+      },
+      ShareCreateInput: {
+        type: 'object',
+        properties: { label: { type: 'string', maxLength: 80, description: 'An optional name for the share, for the owner’s own reference.' } },
+      },
+      ShareResult: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', example: 'K7M2QP', description: 'Six characters, from an alphabet without look-alike letters or digits.' },
+          classes: { type: 'integer', description: 'Class events the share carries.' },
+        },
+        required: ['code', 'classes'],
+      },
+      ShareImportInput: {
+        type: 'object',
+        properties: { code: { type: 'string', example: 'K7M2QP', description: 'The six-character code, case-insensitive.' } },
+        required: ['code'],
+      },
+      ImportResult: {
+        type: 'object',
+        properties: { created: { type: 'integer', description: 'Classes added from the share.' } },
+        required: ['created'],
       },
       SeedResponse: {
         type: 'object',

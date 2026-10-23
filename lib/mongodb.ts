@@ -61,6 +61,10 @@ export function ensureIndexes(): Promise<void> {
           .collection('completions')
           .createIndex({ ownerId: 1, date: 1, eventId: 1 }, { unique: true }),
         db.collection('progress').createIndex({ userId: 1 }, { unique: true }),
+        // One profile per account; the upsert in `saveProfile` relies on it.
+        db.collection('profiles').createIndex({ userId: 1 }, { unique: true }),
+        // A share code is looked up by itself and must be unique to be usable.
+        db.collection('timetable_shares').createIndex({ code: 1 }, { unique: true }),
         db.collection('pin_resets').createIndex({ userId: 1 }, { unique: true }),
         db.collection('pin_resets').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }),
         // Sign-in throttling buckets. TTL so a quiet deployment cleans itself up.

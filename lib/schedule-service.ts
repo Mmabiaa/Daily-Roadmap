@@ -1,19 +1,22 @@
 import { ObjectId, type ClientSession, type Db } from 'mongodb'
 
 import { ApiError } from './errors.ts'
-import type {
-  CategoryName,
-  CompletionToggle,
-  EventDoc,
-  EventException,
-  EventInput,
-  EventUpdate,
-  Repeat,
-  Source,
+import {
+  type CategoryName,
+  type CompletionToggle,
+  type DayName,
+  type EventDoc,
+  type EventException,
+  type EventInput,
+  type EventUpdate,
+  EventInputSchema,
+  type Repeat,
+  type Source,
 } from './models.ts'
 import getClientPromise, { ensureIndexes, getDb } from './mongodb.ts'
 import {
   appliesOn,
+  comebacksFrom,
   conflicts,
   describeEvent,
   essentialProgress,
@@ -489,25 +492,20 @@ function streakFloor(events: EventDoc[], timezone: string): string | null {
 }
 
 /**
- * How many days in a row the owner finished every essential block.
+ * One row per day, from the streak's own floor up to today, newest first.
  *
- * Read from the resolver and the completions store, never from the client's
- * clock: the run is walked to the most recent day, neutral days (nothing
- * essential) are stepped over, and the first unfinished essential day ends it.
- * A day still in progress is not held against the streak.
+ * The walk both `computeStreak` and `computeComebacks` need, kept in one place
+ * so the two read the same days and cannot disagree about what a day held.
  */
-export async function computeStreak(
+async function essentialDays(
   ownerId: string,
   timezone: string,
   today: string,
-  events?: EventDoc[]
-): Promise<number> {
+  all: EventDoc[]
+): Promise<{ days: StreakDay[]; floor: string | null }> {
   const db = await getDb()
-  const all =
-    events ?? normalizeEvents((await db.collection(EVENTS).find({ ownerId }).toArray()) as any)
-
   const floor = streakFloor(all, timezone)
-  if (!floor) return 0
+  if (!floor) return { days: [], floor: null }
 
   const from = addDays(today, -(STREAK_LOOKBACK_DAYS - 1)) > floor
     ? addDays(today, -(STREAK_LOOKBACK_DAYS - 1))
@@ -521,14 +519,55 @@ export async function computeStreak(
     days.push({ date, ...progress })
   }
 
-  // Today is not over yet, so an unfinished essential today neither counts nor
-  // breaks the run — the day only starts counting once it is complete.
-  const todayRow = days[0]
-  const startAt = todayRow && todayRow.essential > 0 && todayRow.done < todayRow.essential ? 1 : 0
-  return streakFrom(days.slice(startAt), floor)
+  return { days, floor }
 }
 
-/** The blocks a date shows, with each one's ticked state and the streak. */
+/**
+ * The streak and the comeback count, read from the resolver and the completions
+ * store — never from the client's clock.
+ *
+ * Today is not over yet, so an unfinished essential today neither counts nor
+ * breaks the run; the days before it still do, which is why the streak skips
+ * today's row only while it is still incomplete.
+ */
+export async function progressSummary(
+  ownerId: string,
+  timezone: string,
+  today: string,
+  events: EventDoc[]
+): Promise<{ streak: number; comebacks: number }> {
+  const { days, floor } = await essentialDays(ownerId, timezone, today, events)
+  if (!floor) return { streak: 0, comebacks: 0 }
+
+  const todayRow = days[0]
+  const startAt = todayRow && todayRow.essential > 0 && todayRow.done < todayRow.essential ? 1 : 0
+
+  return {
+    streak: streakFrom(days.slice(startAt), floor),
+    comebacks: comebacksFrom(days, floor),
+  }
+}
+
+/**
+ * How many days in a row the owner finished every essential block.
+ *
+ * Kept as its own export because it is the rule the tests exercise directly;
+ * it is exactly the streak half of `progressSummary`.
+ */
+export async function computeStreak(
+  ownerId: string,
+  timezone: string,
+  today: string,
+  events?: EventDoc[]
+): Promise<number> {
+  const db = await getDb()
+  const all =
+    events ?? normalizeEvents((await db.collection(EVENTS).find({ ownerId }).toArray()) as any)
+
+  return (await progressSummary(ownerId, timezone, today, all)).streak
+}
+
+/** The blocks a date shows, with each one's ticked state, streak and comebacks. */
 export async function getDayView(ownerId: string, date: string): Promise<DayView> {
   const db = await getDb()
   const timezone = await timezoneFor(ownerId)
@@ -536,13 +575,14 @@ export async function getDayView(ownerId: string, date: string): Promise<DayView
 
   const events = normalizeEvents((await db.collection(EVENTS).find({ ownerId }).toArray()) as any)
   const doneByDate = await completionsByDate(db, ownerId, date, date)
+  const progress = await progressSummary(ownerId, timezone, today, events)
 
   return {
     timezone,
     today,
     date,
     blocks: withDone(resolveDay(events, date), doneByDate.get(date) ?? []),
-    streak: await computeStreak(ownerId, timezone, today, events),
+    ...progress,
   }
 }
 
@@ -556,6 +596,7 @@ export async function getWeekView(ownerId: string, anchor: string): Promise<Week
   const weekStart = weekStartOf(anchor)
   const dates = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index))
   const doneByDate = await completionsByDate(db, ownerId, dates[0], dates[6])
+  const progress = await progressSummary(ownerId, timezone, today, events)
 
   return {
     timezone,
@@ -565,6 +606,81 @@ export async function getWeekView(ownerId: string, anchor: string): Promise<Week
       date,
       blocks: withDone(resolveDay(events, date), doneByDate.get(date) ?? []),
     })),
-    streak: await computeStreak(ownerId, timezone, today, events),
+    ...progress,
   }
+}
+
+/** A block a bulk import will store: a weekly event, already in the v2 shape. */
+export type BulkBlock = {
+  title: string
+  category: CategoryName
+  kind: EventDoc['kind']
+  start: string
+  end: string
+  repeat: { type: 'weekly'; days: DayName[] }
+  essential: boolean
+}
+
+/**
+ * Writes a batch of blocks at once — a drafted week, or an imported timetable.
+ *
+ * Unlike `createEvent`, this does not refuse overlapping fixed blocks: a real
+ * timetable can hold two classes that meet at the same minute, and the person
+ * importing it has already decided that is what their week looks like. Each
+ * block is still validated, so a malformed one is dropped rather than stored,
+ * and the per-account cap is respected by inserting only what fits.
+ *
+ * `replaceCategory` clears the account's existing events in that category
+ * first, in the same transaction, so a re-imported timetable does not stack on
+ * the old one — and their completions go with them.
+ */
+export async function importBlocks(
+  ownerId: string,
+  blocks: BulkBlock[],
+  options: { replaceCategory?: CategoryName } = {}
+): Promise<{ created: number; removed: number }> {
+  const db = await getDb()
+  await ensureIndexes()
+
+  const valid = blocks
+    .map((block) => EventInputSchema.safeParse(block))
+    .flatMap((parsed) => (parsed.success ? [parsed.data] : []))
+  if (valid.length === 0) return { created: 0, removed: 0 }
+
+  const existing = await db.collection(EVENTS).countDocuments({ ownerId })
+  const room = Math.max(0, MAX_EVENTS - existing)
+  const accepted = valid.slice(0, room)
+  if (accepted.length === 0) {
+    throw new ApiError(400, `You can have at most ${MAX_EVENTS} events.`)
+  }
+
+  const createdAt = new Date()
+  const docs = accepted.map((fields) => toStored(ownerId, fields, 'user'))
+  for (const doc of docs) doc.createdAt = createdAt
+
+  const removed = await withTransaction(async (session) => {
+    let cleared = 0
+    if (options.replaceCategory) {
+      const ids = await db
+        .collection(EVENTS)
+        .find({ ownerId, category: options.replaceCategory }, { projection: { _id: 1 }, session })
+        .toArray()
+
+      if (ids.length > 0) {
+        await db.collection(COMPLETIONS).deleteMany(
+          { ownerId, eventId: { $in: ids.map((row) => String(row._id)) } },
+          { session }
+        )
+        await db
+          .collection(EVENTS)
+          .deleteMany({ ownerId, category: options.replaceCategory }, { session })
+        cleared = ids.length
+      }
+    }
+
+    await db.collection(EVENTS).insertMany(docs, { session })
+    return cleared
+  })
+
+  return { created: docs.length, removed }
 }

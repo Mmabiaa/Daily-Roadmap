@@ -3,6 +3,7 @@ import { ensureIndexes, getDb } from '@/lib/mongodb'
 import { hashPin, normalizeEmail, setSession } from '@/lib/auth'
 import { generateToken } from '@/lib/session'
 import { normalizeTimeZone } from '@/lib/timezone'
+import { DEFAULT_PROFILE } from '@/lib/profile'
 import { SignUpSchema } from '@/lib/models'
 
 const DUPLICATE_KEY = 11000
@@ -54,6 +55,16 @@ export async function POST(request: Request) {
       // Whatever the browser reported, or UTC if it is not a real zone: a block
       // stored at 09:00 has to mean 09:00 where this person actually is.
       timezone: normalizeTimeZone(parsed.data.timezone),
+      createdAt: new Date(),
+    })
+
+    // A brand new account owes the one-minute setup. `onboarded: false` is the
+    // only thing that sends someone through it; accounts from before profiles
+    // existed have no document at all and are left alone.
+    await db.collection('profiles').insertOne({
+      userId: result.insertedId.toString(),
+      ...DEFAULT_PROFILE,
+      onboarded: false,
       createdAt: new Date(),
     })
 

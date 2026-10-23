@@ -6,6 +6,7 @@ import { accountFor } from './accounts.ts'
 import { ApiError } from './errors.ts'
 import { ensureIndexes, getDb } from './mongodb.ts'
 import { accountKey, ipKey } from './rate-limit-policy.ts'
+import { profileFor, saveProfile } from './profile.ts'
 import { recordFailure } from './rate-limit.ts'
 import type { DayName, EventInput } from './models.ts'
 import { addDays } from './schedule-time.ts'
@@ -561,6 +562,43 @@ describe('database-backed behaviour', { skip: skip && 'SKIP_INTEGRATION=1 is set
       )
 
       await assert.rejects(() => createEvent(owner, weekly()), failsWith(400))
+    })
+  })
+
+  describe('the profile upsert', () => {
+    it('accepts a patch that overlaps the insert defaults', async () => {
+      // `wake` and `sleep` are in both the patch and DEFAULT_PROFILE. Naming a
+      // path in `$set` and `$setOnInsert` at once is rejected by the server
+      // (code 40), which is what used to stop onboarding from ever finishing.
+      const saved = await saveProfile(owner, {
+        wake: '05:00',
+        sleep: '21:30',
+        persona: 'worker',
+        goals: ['Exercise'],
+      })
+
+      assert.equal(saved.wake, '05:00')
+      assert.equal(saved.sleep, '21:30')
+      assert.equal(saved.persona, 'worker')
+      assert.deepEqual(saved.goals, ['Exercise'])
+      // Fields the patch did not carry still arrive, from the insert defaults.
+      assert.equal(saved.clock, '24')
+      assert.equal(saved.onboarded, true)
+    })
+
+    it('updates the existing document rather than writing a second one', async () => {
+      await saveProfile(owner, { wake: '05:00', sleep: '21:30' })
+      const after = await saveProfile(owner, { clock: '12' })
+
+      assert.equal(after.wake, '05:00')
+      assert.equal(after.clock, '12')
+      assert.equal(await db.collection('profiles').countDocuments({ userId: owner }), 1)
+    })
+
+    it('answers a missing profile as already onboarded, so a legacy account is not sent through setup', async () => {
+      const missing = await profileFor(new ObjectId().toString())
+
+      assert.equal(missing.onboarded, true)
     })
   })
 

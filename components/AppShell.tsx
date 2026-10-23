@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { days, type Category, type Day } from '@/lib/schedule'
-import type { Kind, Repeat } from '@/lib/models'
+import type { Kind, Profile, Repeat, Rules } from '@/lib/models'
+import { lowEnergyRun } from '@/lib/preferences'
 import {
     dayStatus,
     type BlockView,
@@ -10,13 +11,14 @@ import {
     type DayStatus,
     type WeekView as WeekData,
 } from '@/lib/resolver'
-import { durationMinutes, weekdayOf } from '@/lib/schedule-time'
+import { durationMinutes, minutesOf, weekdayOf } from '@/lib/schedule-time'
 import { haptic } from '@/lib/utils'
 
 import { BottomNav } from './BottomNav'
 import { FocusMode } from './FocusMode'
 import { Guide } from './Guide'
 import { Review } from './Review'
+import { Settings } from './Settings'
 import { TodayView } from './TodayView'
 import { Topbar } from './Topbar'
 import { WeekView } from './WeekView'
@@ -25,7 +27,9 @@ import { Confetti } from './Confetti'
 import FloatingActionButton from './FloatingActionButton'
 import EventFormModal, { type EditTarget } from './EventFormModal'
 
-type View = 'today' | 'week' | 'review' | 'guide'
+type View = 'today' | 'week' | 'review' | 'guide' | 'settings'
+
+type EnergyLevel = 'low' | 'okay' | 'high'
 
 /** A stored event as `GET /api/events` returns it — just the fields the form needs. */
 type ListedEvent = {
@@ -104,6 +108,10 @@ export function AppShell() {
     const [timerRunning, setTimerRunning] = useState(false)
     const [toast, setToast] = useState<{ message: string; tone?: 'success' | 'info' } | null>(null)
     const [celebrate, setCelebrate] = useState(false)
+    // The account's own choices — wake/sleep, its goals, its guardrails and the
+    // reminder rule. Loaded alongside the schedule; the Settings and Guide
+    // screens read it, and reminders follow it.
+    const [profile, setProfile] = useState<Profile | null>(null)
     // The resolved week comes from the server, so which day is "today", which
     // blocks a date shows and which are ticked are all decided there, not by the
     // browser clock. The raw list is kept only so an edit can name what it opens.
@@ -119,6 +127,8 @@ export function AppShell() {
     const saved = useRef<StoredProgress>({ reviews: {}, energy: {}, theme: null })
     // The week tab opens on the account's own today, but only once.
     const pickedDay = useRef(false)
+    // The last block a reminder was already shown for, so it is not repeated.
+    const reminded = useRef('')
 
     // Load the resolved week and the raw event list together. Until they arrive
     // we show a skeleton, and on failure an error with a retry. We never fall
@@ -147,6 +157,25 @@ export function AppShell() {
     useEffect(() => {
         loadSchedule()
     }, [loadSchedule])
+
+    // The account's own settings. A failure only means the Settings and Guide
+    // tabs have nothing to show yet — the plan itself is unaffected.
+    useEffect(() => {
+        let cancelled = false
+        ;(async () => {
+            try {
+                const res = await fetch('/api/profile', { cache: 'no-store' })
+                if (!res.ok) return
+                const data = await res.json()
+                if (!cancelled) setProfile(data)
+            } catch {
+                /* offline — retry on the next visit */
+            }
+        })()
+        return () => {
+            cancelled = true
+        }
+    }, [])
 
     // Hydrate progress from the database + start the clock AFTER mount
     // (avoids SSR mismatch). Nothing is read from or written to localStorage.
@@ -297,6 +326,39 @@ export function AppShell() {
 
     const focusBlock: DayBlock | undefined = status.current ?? blocks[0]
 
+    const comebacks = week?.comebacks ?? 0
+    const todayDate = week?.today ?? ''
+    const energyToday = todayDate ? energy[todayDate] ?? null : null
+    const lowRun = todayDate ? lowEnergyRun(energy, todayDate) : 0
+
+    // Hours of classes and study across the whole week — the "too full" signal.
+    const weekLoad = (week?.days ?? []).reduce(
+        (total, d) =>
+            total +
+            d.blocks.reduce(
+                (sum, b) =>
+                    sum +
+                    (b.category === 'class' || b.category === 'study'
+                        ? durationMinutes(b.start, b.end)
+                        : 0),
+                0
+            ),
+        0
+    ) / 60
+
+    // A nudge before the next block starts, following the account's own lead
+    // time. Shown once per block; nothing is sent to a push service.
+    useEffect(() => {
+        if (!mounted || !profile?.reminders.enabled || !status.next || !date) return
+        const mins = minutesOf(status.next.start) - currentMinutes
+        if (mins <= 0 || mins > profile.reminders.lead) return
+
+        const key = `${date}:${status.next.eventId}`
+        if (reminded.current === key) return
+        reminded.current = key
+        setToast({ message: `Starting in ${mins} min · ${status.next.title}` })
+    }, [mounted, profile, status.next, currentMinutes, date])
+
     /** Reflect a tick locally so the row answers at once, before the server does. */
     const markDone = (onDate: string, eventId: string, done: boolean) =>
         setWeek((current) =>
@@ -357,6 +419,28 @@ export function AppShell() {
         window.location.replace('/signin')
     }
 
+    const handleProfile = useCallback((next: Profile) => setProfile(next), [])
+
+    /** The Guide's edit: save the account's own rules, keep them on screen. */
+    const handleRules = useCallback(async (rules: Rules) => {
+        try {
+            const res = await fetch('/api/profile', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rules }),
+            })
+            if (res.ok) setProfile(await res.json())
+        } catch {
+            /* keep what is on screen; the next edit tries again */
+        }
+    }, [])
+
+    const markEnergy = (level: EnergyLevel) => {
+        if (!todayDate) return
+        haptic(5)
+        setEnergy((current) => ({ ...current, [todayDate]: level }))
+    }
+
     const openNewEvent = () => {
         haptic(6)
         setEditTarget(null)
@@ -410,7 +494,9 @@ export function AppShell() {
                     ? 'A gentle view of the week ahead'
                     : view === 'review'
                         ? 'A quiet Sunday check-in'
-                        : 'Small rules, made easier to keep'
+                        : view === 'settings'
+                            ? 'Your day, your rules'
+                            : 'Small rules, made easier to keep'
 
     return (
         <div className="app-shell">
@@ -456,6 +542,7 @@ export function AppShell() {
                             shown={shown}
                             completion={completion}
                             streak={streak}
+                            comebacks={comebacks}
                             current={status.current}
                             next={status.next}
                             minutesLeft={status.minutesLeft}
@@ -463,6 +550,10 @@ export function AppShell() {
                             setMinimum={setMinimum}
                             onToggle={toggle}
                             onEdit={openEditEvent}
+                            energyToday={energyToday}
+                            onEnergy={markEnergy}
+                            lowRun={lowRun}
+                            weekLoad={weekLoad}
                             mounted={mounted}
                         />
                     ) : (
@@ -491,7 +582,17 @@ export function AppShell() {
                         onSaved={() => setToast({ message: 'Saved to your account', tone: 'success' })}
                     />
                 )}
-                {view === 'guide' && <Guide />}
+                {view === 'guide' && profile && (
+                    <Guide rules={profile.rules} onRules={handleRules} />
+                )}
+                {view === 'settings' && profile && (
+                    <Settings
+                        profile={profile}
+                        onProfile={handleProfile}
+                        onToast={(message, tone) => setToast({ message, tone })}
+                        onSignOut={handleSignOut}
+                    />
+                )}
             </div>
 
             {toast && <Toast message={toast.message} tone={toast.tone} />}

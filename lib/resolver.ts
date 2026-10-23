@@ -46,6 +46,8 @@ export type DayView = {
   date: string
   blocks: BlockView[]
   streak: number
+  /** How many times the account returned after a missed essential day. */
+  comebacks: number
 }
 
 export type WeekView = {
@@ -54,6 +56,7 @@ export type WeekView = {
   weekStart: string
   days: { date: string; blocks: BlockView[] }[]
   streak: number
+  comebacks: number
 }
 
 /** A stored event as it comes back from the driver, before normalisation. */
@@ -353,4 +356,28 @@ export function streakFrom(days: StreakDay[], floorDate?: string): number {
   }
 
   return streak
+}
+
+/**
+ * How many times the account came back after slipping.
+ *
+ * Simpler than the streak, and deliberately so: it counts each complete
+ * essential day that follows an unfinished one, which is the return itself.
+ * Days with nothing essential are ignored, and the first counting day can never
+ * be a comeback — so a new account starts at 0, and this is the number that
+ * matters most rather than the run that survives.
+ */
+export function comebacksFrom(days: StreakDay[], floorDate?: string): number {
+  const counting = days
+    .filter((day) => day.essential > 0 && (!floorDate || day.date >= floorDate))
+    .sort((a, b) => a.date.localeCompare(b.date))
+
+  let comebacks = 0
+  for (let i = 1; i < counting.length; i += 1) {
+    const missed = counting[i - 1].done < counting[i - 1].essential
+    const finished = counting[i].done >= counting[i].essential
+    if (missed && finished) comebacks += 1
+  }
+
+  return comebacks
 }

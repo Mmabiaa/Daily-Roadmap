@@ -4,13 +4,14 @@ import Image from 'next/image'
 import { Lock, LogOut, Moon, Sun, Unlock } from 'lucide-react'
 import { haptic } from '@/lib/utils'
 
-type View = 'today' | 'week' | 'review' | 'guide'
+type View = 'today' | 'week' | 'review' | 'guide' | 'settings'
 
 const titles: Record<View, string> = {
     today: 'Today',
     week: 'Your week',
     review: 'Weekly review',
     guide: 'Guide & rules',
+    settings: 'Settings',
 }
 
 type Props = {

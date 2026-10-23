@@ -265,3 +265,113 @@ export type Progress = z.infer<typeof ProgressSchema>
 export type Checks = z.infer<typeof ChecksSchema>
 export type Reviews = z.infer<typeof ReviewsSchema>
 export type Energy = z.infer<typeof EnergySchema>
+
+// ─── Phase 2 profile, onboarding and sharing ────────────────────────────────
+// One document per account holds the choices that shape its day: when it wakes
+// and sleeps, what kind of day it is, the clock the screens read, its own
+// guardrails, and whether onboarding has been finished. Kept out of `users` so
+// the account stays only what sign-in needs.
+
+/** What kind of day the account is built around. */
+export const PERSONAS = ['student', 'worker', 'freelancer', 'shift'] as const
+export const PersonaSchema = z.enum(PERSONAS)
+export type Persona = z.infer<typeof PersonaSchema>
+
+/** The clock the screens read: 12- or 24-hour. */
+export const CLOCKS = ['12', '24'] as const
+export const ClockSchema = z.enum(CLOCKS)
+export type Clock = z.infer<typeof ClockSchema>
+
+/** Whether to nudge before a block, and how many minutes ahead. */
+export const ReminderSchema = z.object({
+  enabled: z.boolean(),
+  lead: z.number().int().min(0).max(120),
+})
+export type Reminder = z.infer<typeof ReminderSchema>
+
+/** The account's own guardrails, shown on the Guide screen and edited there. */
+export const RulesSchema = z.object({
+  phone: z.array(z.string().trim().min(1).max(200)).max(12),
+  study: z.array(z.string().trim().min(1).max(200)).max(12),
+})
+export type Rules = z.infer<typeof RulesSchema>
+
+export const ProfileSchema = z.object({
+  userId: z.string(),
+  /** False until the onboarding flow is finished; a missing profile means done. */
+  onboarded: z.boolean(),
+  wake: TimeString,
+  sleep: TimeString,
+  persona: PersonaSchema,
+  goals: z.array(z.string().trim().min(1).max(60)).max(8),
+  clock: ClockSchema,
+  reminders: ReminderSchema,
+  rules: RulesSchema,
+  createdAt: z.date().optional(),
+  updatedAt: z.date().optional(),
+})
+export type Profile = z.infer<typeof ProfileSchema>
+
+/**
+ * What the Settings screen may change. `onboarded` is deliberately absent: only
+ * the onboarding route sets it, the same way exceptions are server-managed.
+ */
+export const ProfileUpdateSchema = z
+  .object({
+    wake: TimeString.optional(),
+    sleep: TimeString.optional(),
+    persona: PersonaSchema.optional(),
+    goals: z.array(z.string().trim().min(1).max(60)).max(8).optional(),
+    clock: ClockSchema.optional(),
+    reminders: ReminderSchema.optional(),
+    rules: RulesSchema.optional(),
+  })
+  .refine((value) => !(value.wake && value.sleep && value.wake === value.sleep), {
+    path: ['sleep'],
+    message: 'Wake and sleep must differ',
+  })
+export type ProfileUpdate = z.infer<typeof ProfileUpdateSchema>
+
+/**
+ * The must-dos offered at the end of onboarding. Whichever three to five are
+ * picked become the account's Minimum day, so the keys map to the blocks a
+ * drafted plan marks essential.
+ */
+export const MUST_DOS = ['wake', 'study', 'move', 'project', 'winddown', 'sleep'] as const
+export const MustDoSchema = z.enum(MUST_DOS)
+export type MustDo = z.infer<typeof MustDoSchema>
+
+/**
+ * The last step of onboarding: the answers, plus the must-dos. The server turns
+ * these into the account's first week and marks it onboarded.
+ */
+export const OnboardingSchema = z.object({
+  wake: TimeString,
+  sleep: TimeString,
+  persona: PersonaSchema,
+  goals: z.array(z.string().trim().min(1).max(60)).max(8),
+  essentials: z.array(MustDoSchema).min(3).max(5),
+})
+export type OnboardingInput = z.infer<typeof OnboardingSchema>
+
+/**
+ * A timetable paste. The text is parsed on the server into fixed class events;
+ * `replace` clears the account's existing classes first, so re-importing a
+ * corrected timetable does not leave the old one behind.
+ */
+export const TimetableSchema = z.object({
+  text: z.string().trim().min(1).max(20000),
+  replace: z.boolean().optional(),
+})
+export type TimetableInput = z.infer<typeof TimetableSchema>
+
+/** A class timetable shared by code: anyone signed in may import a snapshot. */
+export const ShareCreateSchema = z.object({
+  label: z.string().trim().max(80).optional(),
+})
+export type ShareCreateInput = z.infer<typeof ShareCreateSchema>
+
+export const ShareImportSchema = z.object({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{6}$/, 'Enter the 6-character code'),
+})
+export type ShareImportInput = z.infer<typeof ShareImportSchema>
