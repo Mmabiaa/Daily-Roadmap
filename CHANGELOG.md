@@ -25,6 +25,8 @@ what is new. Kept deliberately short: one line per item, plain words.
 - [x] Atomic multi-document writes via transactions
 - [x] Server-computed streak (forgiving: neutral days skipped, unfinished today not held against you)
 - [x] Migration script `scripts/migrate-events-to-v2.ts` (dry-run by default)
+- [x] Production handover `scripts/seed-production.ts` — claims the pre-account rows for
+      one account and puts every other account through the new setup (dry-run by default)
 
 ## Screens already wired
 
