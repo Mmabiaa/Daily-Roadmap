@@ -3,16 +3,6 @@ export type Block = { time: string; title: string; category: Category; note?: st
 export const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] as const
 export type Day = typeof days[number]
 
-export const focus: Record<Day,string> = {
- Mon:'Long class day. Protect the 1:15 to 3:30 PM gap.',
- Tue:'Six classes in a row from 6:30 AM. Eat early, pack water and a snack.',
- Wed:'Quiet morning for deep study. Lab, then classes until 7 PM.',
- Thu:'Study after the early class. Strength B tonight.',
- Fri:'Light classes. Finish the week’s assignments before the weekend.',
- Sat:'Train, study, reset the room, then a guilt-free fun night.',
- Sun:'Reset day. Review the week, set up the system, call family.'
-}
-
 const B=(time:string,title:string,category:Category,note?:string,essential?:boolean):Block=>({time,title,category,note,essential})
 
 export const schedule: Record<Day,Block[]> = {

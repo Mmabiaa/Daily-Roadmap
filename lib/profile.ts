@@ -19,6 +19,7 @@ const DEFAULT_RULES: Rules = { phone: [...phoneRules], study: [...studyRules] }
 /** What a profile says before the account has changed anything. */
 export const DEFAULT_PROFILE: Omit<Profile, 'userId'> = {
   onboarded: false,
+  name: '',
   wake: '06:30',
   sleep: '22:30',
   persona: 'student',
@@ -45,6 +46,7 @@ export async function profileFor(userId: string): Promise<Profile> {
   return {
     userId,
     onboarded: Boolean(doc.onboarded),
+    name: typeof doc.name === 'string' ? doc.name : '',
     wake: typeof doc.wake === 'string' ? doc.wake : DEFAULT_PROFILE.wake,
     sleep: typeof doc.sleep === 'string' ? doc.sleep : DEFAULT_PROFILE.sleep,
     persona: doc.persona ?? DEFAULT_PROFILE.persona,

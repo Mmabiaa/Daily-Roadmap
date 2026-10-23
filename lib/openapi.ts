@@ -104,6 +104,7 @@ export const openApiDocument = {
     { name: 'Events', description: 'The signed-in user’s own schedule blocks' },
     { name: 'Progress', description: 'Per-user completion, reviews, energy and theme' },
     { name: 'Profile', description: 'The account’s own settings and guardrails' },
+    { name: 'Insights', description: 'What the account keeps and what slips, read from its own history' },
     { name: 'Onboarding', description: 'Finishing the one-minute setup' },
     { name: 'Timetable', description: 'Importing a class timetable, and sharing it by code' },
     { name: 'Admin', description: 'Seeding (guarded by a server secret)' },
@@ -452,6 +453,67 @@ export const openApiDocument = {
             content: { 'application/json': { schema: { $ref: '#/components/schemas/Profile' } } },
           },
           400: errorResponse,
+          401: unauthorizedResponse,
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/account': {
+      get: {
+        tags: ['Profile'],
+        summary: 'Get the signed-in account’s identity',
+        description:
+          'The account’s own fields, kept apart from the profile because they live on the ' +
+          '`users` document: the username it signs in with, the email PIN resets go to, and ' +
+          'the IANA zone its wall-clock times belong to.',
+        responses: {
+          200: {
+            description: 'The account’s identity',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Account' } } },
+          },
+          401: unauthorizedResponse,
+          404: errorResponse,
+          500: errorResponse,
+        },
+      },
+      patch: {
+        tags: ['Profile'],
+        summary: 'Update the account’s email or time zone',
+        description:
+          'Only the provided fields are written. The username is the sign-in identifier and is ' +
+          'not editable here. A raw UTC offset is refused for `timezone`, because an account ' +
+          'tracking an offset would drift an hour at every daylight-saving change. A new email ' +
+          'must not belong to another account (409).',
+        requestBody: jsonBody({ $ref: '#/components/schemas/AccountUpdate' }),
+        responses: {
+          200: {
+            description: 'The account’s identity after the change',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Account' } } },
+          },
+          400: errorResponse,
+          401: unauthorizedResponse,
+          404: errorResponse,
+          409: { description: 'That email is already registered', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
+    '/api/insights': {
+      get: {
+        tags: ['Insights'],
+        summary: 'What the account keeps and what slips',
+        description:
+          'Reads the account’s own history: each event’s resolved occurrences on days that are ' +
+          'already over (up to 42 days, never before the plan’s first day), against the ticks ' +
+          'made on those days. Today is excluded because it is still open. An event has to have ' +
+          'come round at least twice before it is judged. "Strengths" are blocks ticked on at ' +
+          'least 70% of their days, "slips" those ticked on at most 34%; both are capped at ' +
+          'four. No AI is involved — every number comes from stored rows.',
+        responses: {
+          200: {
+            description: 'The account’s review',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/Insights' } } },
+          },
           401: unauthorizedResponse,
           500: errorResponse,
         },
@@ -916,6 +978,7 @@ export const openApiDocument = {
         properties: {
           userId: { type: 'string' },
           onboarded: { type: 'boolean', description: 'False until the onboarding flow is finished; an account with no profile document reads as true.' },
+          name: { type: 'string', maxLength: 60, description: 'The name the app greets the person by. Empty until they set one.' },
           wake: { type: 'string', example: '06:30' },
           sleep: { type: 'string', example: '22:30' },
           persona: { type: 'string', enum: personas },
@@ -924,7 +987,7 @@ export const openApiDocument = {
           reminders: { $ref: '#/components/schemas/Reminder' },
           rules: { $ref: '#/components/schemas/Rules' },
         },
-        required: ['userId', 'onboarded', 'wake', 'sleep', 'persona', 'goals', 'clock', 'reminders', 'rules'],
+        required: ['userId', 'onboarded', 'name', 'wake', 'sleep', 'persona', 'goals', 'clock', 'reminders', 'rules'],
       },
       ProfileUpdate: {
         type: 'object',
@@ -932,6 +995,7 @@ export const openApiDocument = {
           'Any subset of the editable settings; provided fields are written. `onboarded` is not ' +
           'editable here, and `wake` and `sleep` may not be equal when both are sent.',
         properties: {
+          name: { type: 'string', maxLength: 60 },
           wake: { type: 'string', example: '06:30' },
           sleep: { type: 'string', example: '22:30', description: 'Must differ from `wake` when both are sent.' },
           persona: { type: 'string', enum: personas },
@@ -940,6 +1004,53 @@ export const openApiDocument = {
           reminders: { $ref: '#/components/schemas/Reminder' },
           rules: { $ref: '#/components/schemas/Rules' },
         },
+      },
+      Account: {
+        type: 'object',
+        description:
+          'The account’s identity, stored on the `users` document rather than the profile. The ' +
+          'username is the sign-in identifier and is never editable.',
+        properties: {
+          username: { type: 'string', example: 'mmabiaa' },
+          email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Where PIN reset codes are sent.' },
+          timezone: { type: 'string', example: 'Europe/London', description: 'IANA zone the account’s wall-clock times belong to.' },
+        },
+        required: ['username', 'email', 'timezone'],
+      },
+      AccountUpdate: {
+        type: 'object',
+        description: 'Any subset of the account’s editable identity. At least one field is required.',
+        properties: {
+          email: { type: 'string', format: 'email', example: 'you@example.com', description: 'Must not belong to another account.' },
+          timezone: { type: 'string', example: 'Europe/London', description: 'A real IANA zone. A raw UTC offset is refused.' },
+        },
+      },
+      InsightItem: {
+        type: 'object',
+        description: 'One block’s record across the review window.',
+        properties: {
+          eventId: { type: 'string' },
+          title: { type: 'string' },
+          category: { type: 'string', enum: categories },
+          occurred: { type: 'integer', description: 'Days it was scheduled on, excluding today.' },
+          done: { type: 'integer', description: 'Of those, how many were ticked.' },
+          rate: { type: 'number', description: '`done / occurred`, from 0 to 1.' },
+        },
+        required: ['eventId', 'title', 'category', 'occurred', 'done', 'rate'],
+      },
+      Insights: {
+        type: 'object',
+        properties: {
+          timezone: { type: 'string', example: 'Europe/London' },
+          today: { type: 'string', example: '2026-10-20' },
+          windowDays: { type: 'integer', description: 'How many days the analysis covers, before the plan’s own floor.' },
+          streak: { type: 'integer', description: STREAK_DESCRIPTION },
+          comebacks: { type: 'integer', description: COMEBACKS_DESCRIPTION },
+          strengths: { type: 'array', items: { $ref: '#/components/schemas/InsightItem' }, description: 'Blocks ticked most reliably — what the account keeps.' },
+          slips: { type: 'array', items: { $ref: '#/components/schemas/InsightItem' }, description: 'Blocks ticked least — what slips.' },
+          tracked: { type: 'integer', description: 'How many blocks carried enough history to be judged.' },
+        },
+        required: ['timezone', 'today', 'windowDays', 'streak', 'comebacks', 'strengths', 'slips', 'tracked'],
       },
       OnboardingInput: {
         type: 'object',

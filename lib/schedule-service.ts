@@ -480,13 +480,14 @@ function withDone(blocks: DayBlock[], done: Iterable<string>): BlockView[] {
 }
 
 /**
- * The earliest date the streak may count back to.
+ * The earliest date the plan existed, which the streak and the review both
+ * stop at.
  *
  * A weekly event with no start date has no first day of its own, so its
- * creation date stands in: the streak never reaches back before the plan the
+ * creation date stands in: neither count ever reaches back before the plan the
  * account actually made.
  */
-function streakFloor(events: EventDoc[], timezone: string): string | null {
+export function planFloor(events: EventDoc[], timezone: string): string | null {
   let floor: string | null = null
   for (const event of events) {
     let day: string | null = null
@@ -512,7 +513,7 @@ async function essentialDays(
   all: EventDoc[]
 ): Promise<{ days: StreakDay[]; floor: string | null }> {
   const db = await getDb()
-  const floor = streakFloor(all, timezone)
+  const floor = planFloor(all, timezone)
   if (!floor) return { days: [], floor: null }
 
   const from = addDays(today, -(STREAK_LOOKBACK_DAYS - 1)) > floor

@@ -54,8 +54,12 @@ what is new. Kept deliberately short: one line per item, plain words.
 - [x] **Reminders** — in-app nudge before a block starts (no push service needed)
 - [x] **Settings screen** — wake/sleep, persona, goals, 12/24-hour clock, reminders,
       timetable tools, sign out (`components/Settings.tsx`)
+- [x] **Account details** — name, username, email and time zone, read and saved
+      with `GET`/`PATCH /api/account` (a taken email answers `409`)
 - [x] **Guide for everyone** — the account's own phone/study rules, editable,
       plus the Minimum day explained
+- [x] **Review insights** — what the account keeps and what slips, read from its own
+      last 42 days (`lib/insights.ts`, `GET /api/insights`), no AI
 - [x] `app/styles/09-screens.css` — styles for the new screens, in the app's tokens
 - [x] `lib/preferences.ts` — shared labels and small rules the screens read
 - [x] **Email** — PIN reset codes and a welcome mail on sign-up, both rendered in
@@ -74,8 +78,20 @@ what is new. Kept deliberately short: one line per item, plain words.
       email (reminders, security notices) is a heading plus a body away
 - [x] `components/AppShell.tsx` — profile load, energy, wellbeing, reminders, settings view
 - [x] `components/BottomNav.tsx` / `components/Topbar.tsx` — five tabs incl. Settings
-- [x] `components/Guide.tsx` — per-account rules instead of the admin-only bundle
+- [x] `components/Guide.tsx` — per-account rules instead of the admin-only bundle,
+      plus a "What this is" card and a line from the account's own goals
+- [x] `components/Settings.tsx` — an account card (name, username, email, time zone)
+      above the focus settings
+- [x] `components/WeekView.tsx` — the day's headline is passed in, not read from a template
+- [x] `components/Review.tsx` — insights above the weekly prompts
 - [x] `components/TodayView.tsx` — energy check-in and wellbeing notes
+- [x] `lib/preferences.ts` — `dayFocus()` writes the week headline from the day's own
+      resolved blocks and the account's goals, so it no longer describes the seeded
+      template ("Long class day. Protect the 1:15 to 3:30 PM gap." only when that
+      class is really there)
+- [x] `lib/schedule.ts` — the hard-coded per-day `focus` map is gone
+- [x] `lib/schedule-service.ts` — exported `planFloor()`, so insights never look back
+      before the account's plan began
 - [x] `app/page.tsx` — sends a not-yet-onboarded account to `/signin` to resume setup
 - [x] `app/globals.css` — imports the new screen stylesheet
 

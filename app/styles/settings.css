@@ -1,0 +1,584 @@
+/* ───────────── Settings (redesign) ─────────────
+   Uses only the existing design tokens (--card, --surface, --line, --primary…),
+   so no colors change. All classes are prefixed `st-` and scoped, so nothing
+   else in the app is affected. Imported last in `app/globals.css`, after
+   09-screens.css, so its rules win where the two overlap. */
+
+.st-page {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding-bottom: 28px;
+}
+
+/* ── Identity header ── */
+
+.st-hero {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 4px 2px 2px;
+}
+
+.st-avatar {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 56px;
+    height: 56px;
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--line));
+    border-radius: 18px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+}
+
+.st-avatar svg {
+    width: 24px;
+    height: 24px;
+}
+
+.st-hero-text {
+    min-width: 0;
+}
+
+.st-hero-text h2 {
+    margin: 0;
+    overflow: hidden;
+    font-size: 21px;
+    line-height: 1.2;
+    letter-spacing: -.03em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.st-hero-text p {
+    min-height: 1.4em;
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: 13.5px;
+}
+
+/* ── Layout: one column, two when the container is wide enough ── */
+
+.st-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.st-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
+@container (min-width: 720px) {
+    .st-grid {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 16px;
+    }
+
+    .st-col {
+        flex: 1 1 0;
+        gap: 16px;
+    }
+}
+
+/* ── Card ── */
+
+.st-card {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--card);
+}
+
+.st-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--line);
+}
+
+.st-icon {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--primary) 12%, var(--card));
+    color: var(--primary);
+}
+
+.st-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.st-card-head h3 {
+    margin: 0;
+    font-size: 15.5px;
+    line-height: 1.3;
+    letter-spacing: -.01em;
+}
+
+.st-card-head p {
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.st-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px 18px 18px;
+}
+
+/* ── Fields ── */
+
+.st-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+}
+
+.st-field>span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.st-field>span svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+}
+
+.st-field>small {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.st-field input,
+.st-field select,
+.st-field textarea,
+.st-select,
+.st-import input {
+    width: 100%;
+    min-height: 46px;
+    padding: 0 13px;
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    outline: none;
+    background: var(--surface);
+    color: var(--foreground);
+    font-family: inherit;
+    font-size: 16px;
+    /* 16px stops iOS zooming in on focus */
+    transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.st-field textarea {
+    min-height: 132px;
+    padding: 12px 13px;
+    resize: vertical;
+    font-size: 14.5px;
+    line-height: 1.55;
+}
+
+.st-field input::placeholder,
+.st-field textarea::placeholder,
+.st-import input::placeholder {
+    color: var(--muted);
+    opacity: .7;
+}
+
+.st-field input:focus,
+.st-field select:focus,
+.st-field textarea:focus,
+.st-select:focus,
+.st-import input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+.st-field input:disabled,
+.st-field select:disabled {
+    opacity: .6;
+    cursor: not-allowed;
+}
+
+.st-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.st-error {
+    margin: -4px 0 0;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, #ef4444 35%, var(--line));
+    border-radius: 12px;
+    background: color-mix(in srgb, #ef4444 10%, var(--card));
+    color: var(--foreground);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* ── Rows (label left, control right) ── */
+
+.st-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+}
+
+.st-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.st-row-title {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.st-row-hint {
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+
+.st-row-control {
+    flex: 0 0 auto;
+}
+
+.st-select {
+    width: auto;
+    min-height: 42px;
+    padding: 0 12px;
+    font-size: 14px;
+}
+
+.st-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--foreground);
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.st-value svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted);
+}
+
+/* ── Switch ── */
+
+.st-switch {
+    width: 48px;
+    height: 28px;
+    padding: 3px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--line-strong);
+    transition: background .2s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.st-switch span {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 3px #0003;
+    transition: transform .2s ease;
+}
+
+.st-switch.on {
+    background: var(--primary);
+}
+
+.st-switch.on span {
+    transform: translateX(20px);
+}
+
+.st-switch:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* ── Segmented control ── */
+
+.st-seg {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.st-seg button {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background .15s ease, color .15s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.st-seg button[aria-pressed='true'] {
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: 0 1px 3px #0002;
+}
+
+.st-seg button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* ── Buttons ── */
+
+.st-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    min-height: 46px;
+    padding: 0 20px;
+    border: 0;
+    border-radius: 13px;
+    background: var(--primary);
+    color: var(--background);
+    font-size: 14px;
+    font-weight: 700;
+    box-shadow: 0 10px 24px -14px var(--primary);
+    transition: transform .12s ease, opacity .15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.st-card-body>.st-button,
+.st-field>.st-button {
+    width: 100%;
+}
+
+.st-button-quiet {
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--foreground);
+    box-shadow: none;
+}
+
+.st-button:active:not(:disabled) {
+    transform: scale(.98);
+}
+
+.st-button:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+.st-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+/* ── Share code ── */
+
+.st-code {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 18px;
+    border: 1px dashed color-mix(in srgb, var(--primary) 45%, var(--line-strong));
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--primary) 7%, var(--card));
+    color: var(--primary);
+    -webkit-tap-highlight-color: transparent;
+}
+
+.st-code strong {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: .28em;
+    text-indent: .28em;
+    font-variant-numeric: tabular-nums;
+}
+
+.st-code small {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.st-code small svg {
+    width: 13px;
+    height: 13px;
+}
+
+.st-code:active {
+    transform: scale(.99);
+}
+
+.st-code:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.st-import {
+    display: flex;
+    gap: 10px;
+}
+
+.st-import input {
+    flex: 1;
+    min-width: 0;
+    font-weight: 700;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+}
+
+/* ── Sign out + save status ── */
+
+.st-signout {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 48px;
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    background: var(--card);
+    color: var(--foreground);
+    font-size: 14px;
+    font-weight: 700;
+    transition: transform .12s ease, background .15s ease, border-color .15s ease, color .15s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+.st-signout svg {
+    width: 16px;
+    height: 16px;
+}
+
+.st-signout:hover {
+    border-color: color-mix(in srgb, #ef4444 40%, var(--line));
+    color: #ef4444;
+}
+
+.st-signout:active {
+    transform: scale(.98);
+}
+
+.st-signout:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.st-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 18px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    text-align: center;
+    transition: color .2s ease;
+}
+
+.st-status svg {
+    width: 14px;
+    height: 14px;
+}
+
+.st-status.is-active {
+    color: var(--primary);
+    font-weight: 650;
+}
+
+/* ── Narrow screens ── */
+
+@media (max-width: 380px) {
+    .st-pair {
+        grid-template-columns: 1fr;
+    }
+
+    .st-row {
+        flex-wrap: wrap;
+    }
+
+    .st-code strong {
+        font-size: 26px;
+    }
+
+    .st-card-head,
+    .st-card-body {
+        padding-left: 15px;
+        padding-right: 15px;
+    }
+}
+
+/* ── Reduced motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+
+    .st-switch,
+    .st-switch span,
+    .st-seg button,
+    .st-button,
+    .st-signout,
+    .st-status,
+    .st-field input,
+    .st-field select,
+    .st-field textarea {
+        transition: none !important;
+    }
+
+    .st-button:active:not(:disabled),
+    .st-signout:active,
+    .st-code:active {
+        transform: none;
+    }
+}

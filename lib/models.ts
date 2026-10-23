@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { newPinProblem } from './pin.ts'
 import { isDate, TIME_PATTERN } from './schedule-time.ts'
+import { isSupportedTimeZone } from './timezone.ts'
 
 /**
  * The pre-1A event shape: a weekday plus a start time, with no stored end.
@@ -300,6 +301,8 @@ export const ProfileSchema = z.object({
   userId: z.string(),
   /** False until the onboarding flow is finished; a missing profile means done. */
   onboarded: z.boolean(),
+  /** The name the app greets the person by. Empty until they set one. */
+  name: z.string().trim().max(60),
   wake: TimeString,
   sleep: TimeString,
   persona: PersonaSchema,
@@ -318,6 +321,7 @@ export type Profile = z.infer<typeof ProfileSchema>
  */
 export const ProfileUpdateSchema = z
   .object({
+    name: z.string().trim().max(60).optional(),
     wake: TimeString.optional(),
     sleep: TimeString.optional(),
     persona: PersonaSchema.optional(),
@@ -331,6 +335,27 @@ export const ProfileUpdateSchema = z
     message: 'Wake and sleep must differ',
   })
 export type ProfileUpdate = z.infer<typeof ProfileUpdateSchema>
+
+/**
+ * What the account itself may change from Settings: the email PIN resets are
+ * sent to, and the zone its wall-clock times belong to. The username is the
+ * sign-in identifier and is not editable. A raw UTC offset is refused, because
+ * an account tracking an offset would drift an hour at every daylight-saving
+ * change — the exact bug the stored zone exists to prevent.
+ */
+export const AccountUpdateSchema = z
+  .object({
+    email: z.email('Enter a valid email address').optional(),
+    timezone: z
+      .string()
+      .trim()
+      .refine(isSupportedTimeZone, 'Pick a real time zone')
+      .optional(),
+  })
+  .refine((value) => value.email !== undefined || value.timezone !== undefined, {
+    message: 'Nothing to update',
+  })
+export type AccountUpdate = z.infer<typeof AccountUpdateSchema>
 
 /**
  * The must-dos offered at the end of onboarding. Whichever three to five are

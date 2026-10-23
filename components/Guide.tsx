@@ -1,25 +1,31 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Plus, X } from 'lucide-react'
-import type { Rules } from '@/lib/models'
+import { Compass, Plus, X } from 'lucide-react'
+import type { Profile, Rules } from '@/lib/models'
+import { PERSONA_OPTIONS } from '@/lib/preferences'
 import { haptic } from '@/lib/utils'
 
 type Props = {
     rules: Rules
     onRules: (rules: Rules) => void
+    profile: Profile
 }
 
 const cleaned = (lines: string[]) => lines.map((line) => line.trim()).filter(Boolean)
 
+/** `a, b and c` — the goals, read back as a sentence. */
+const list = (items: string[]) =>
+    items.length > 1 ? `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}` : items[0]
+
 /**
- * The account's own guardrails, plus what a Minimum day is.
+ * What the app is, its guardrails, and what a Minimum day keeps.
  *
  * The two lists belong to the person, not the product, so they start from the
  * app's defaults and are then theirs to edit. Blank rows are allowed while
  * typing but never saved.
  */
-export function Guide({ rules, onRules }: Props) {
+export function Guide({ rules, onRules, profile }: Props) {
     const [phone, setPhone] = useState<string[]>(rules.phone)
     const [study, setStudy] = useState<string[]>(rules.study)
 
@@ -76,6 +82,16 @@ export function Guide({ rules, onRules }: Props) {
         </section>
     )
 
+    // The account's own setup, read back so the explainer is about this plan
+    // rather than a generic one.
+    const personaBlurb = PERSONA_OPTIONS.find((option) => option.id === profile.persona)?.blurb
+    const personal = [
+        personaBlurb,
+        profile.goals.length ? `You are building toward ${list(profile.goals)}.` : '',
+    ]
+        .filter(Boolean)
+        .join(' ')
+
     return (
         <main className="content guide-page">
             <section className="guide-intro">
@@ -85,6 +101,24 @@ export function Guide({ rules, onRules }: Props) {
                     These are guardrails, not rules to be perfect at. They are yours — edit them to
                     fit your days, and return to them when the day gets noisy.
                 </p>
+            </section>
+
+            <section className="guide-card">
+                <h3>
+                    <Compass /> What this is
+                </h3>
+                <p>
+                    Daily Roadmap is a planner for the week you are already living. Your fixed
+                    things — classes, work, the appointments you cannot move — stay put, and
+                    everything else is arranged around them, one honest block at a time. Tick a
+                    block when you have done it; the week updates as you go.
+                </p>
+                <ul className="guide-points">
+                    <li>Your week is yours — every block can be moved, ticked or skipped.</li>
+                    <li>A Minimum day keeps only your essentials, for the days that go sideways.</li>
+                    <li>Comebacks count more than streaks: slipping is expected, returning is the win.</li>
+                </ul>
+                <small className="guide-personal">{personal}</small>
             </section>
 
             <section className="guide-card minimum-card">

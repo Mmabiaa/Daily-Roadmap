@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { days, type Category, type Day } from '@/lib/schedule'
 import type { Kind, Profile, Repeat, Rules } from '@/lib/models'
-import { lowEnergyRun } from '@/lib/preferences'
+import { dayFocus, lowEnergyRun } from '@/lib/preferences'
 import {
     dayStatus,
     type BlockView,
@@ -300,6 +300,10 @@ export function AppShell() {
     const blocks = day?.blocks ?? []
     const shown = minimum ? blocks.filter((b) => b.essential) : blocks
 
+    // The week's headline is read from the day's own blocks and goals, so it
+    // describes the account's plan rather than the seeded template it used to.
+    const headline = dayFocus(blocks, profile?.goals ?? [], profile?.clock ?? '24')
+
     const isToday = todayDay !== null && activeDay === todayDay
     const currentMinutes = safeNow.getHours() * 60 + safeNow.getMinutes()
     const status: DayStatus =
@@ -565,6 +569,7 @@ export function AppShell() {
                                 haptic(5)
                                 setSelectedDay(d)
                             }}
+                            headline={headline}
                             classHours={classHours}
                             studyHours={studyHours}
                             essentialDone={essentialDone}
@@ -583,7 +588,7 @@ export function AppShell() {
                     />
                 )}
                 {view === 'guide' && profile && (
-                    <Guide rules={profile.rules} onRules={handleRules} />
+                    <Guide rules={profile.rules} onRules={handleRules} profile={profile} />
                 )}
                 {view === 'settings' && profile && (
                     <Settings

@@ -7,8 +7,9 @@
  * browser bundle.
  */
 
-import type { Clock, MustDo, Persona } from './models.ts'
-import { addDays } from './schedule-time.ts'
+import type { CategoryName, Clock, MustDo, Persona } from './models.ts'
+import type { BlockView } from './resolver.ts'
+import { addDays, durationMinutes, minutesOf } from './schedule-time.ts'
 
 /** What kind of day the account is built around, and the one line that explains it. */
 export const PERSONA_OPTIONS: { id: Persona; label: string; blurb: string }[] = [
@@ -69,4 +70,89 @@ export function lowEnergyRun(
     date = addDays(date, -1)
   }
   return run
+}
+
+/** The channel each preset goal points at, so a day's line can name the block. */
+const GOAL_CATEGORY: Record<string, CategoryName> = {
+  Exercise: 'body',
+  'Deep study': 'study',
+  'Side project': 'project',
+  'Eat well': 'eat',
+  'See people': 'people',
+}
+
+/** The widest free stretch between two classes, or `null` when they run back to back. */
+function largestGap(classes: BlockView[]): { from: string; to: string; minutes: number } | null {
+  let best: { from: string; to: string; minutes: number } | null = null
+  for (let i = 1; i < classes.length; i += 1) {
+    const from = classes[i - 1].end
+    const to = classes[i].start
+    const minutes = minutesOf(to) - minutesOf(from)
+    if (minutes > 0 && (!best || minutes > best.minutes)) best = { from, to, minutes }
+  }
+  return best
+}
+
+/** The first block a preset goal points at, preferring an essential one. */
+function goalBlock(
+  blocks: BlockView[],
+  goals: string[]
+): { goal: string; block: BlockView } | null {
+  for (const goal of goals) {
+    const category = GOAL_CATEGORY[goal]
+    if (!category) continue
+    const block =
+      blocks.find((b) => b.category === category && b.essential) ??
+      blocks.find((b) => b.category === category)
+    if (block) return { goal, block }
+  }
+  return null
+}
+
+/**
+ * One line about a day, read from the day itself rather than a fixed template.
+ *
+ * The line used to be a hard-coded sentence per weekday, written for the one
+ * seeded account — so every other account opened the week to a stranger's
+ * timetable. This derives it from the blocks that actually resolve: a
+ * class-heavy day names the gap between classes worth protecting, a lighter
+ * one points at the goal the person set, and a day with nothing on it says so.
+ * Goals are matched by their preset labels; a goal typed by hand has no
+ * category to point at and is simply skipped.
+ */
+export function dayFocus(blocks: BlockView[], goals: string[], clock: Clock): string {
+  const fmt = (time: string) => formatClock(time, clock)
+
+  if (blocks.length === 0) return 'Nothing planned yet — add a block when you are ready.'
+
+  const classes = blocks
+    .filter((block) => block.category === 'class')
+    .slice()
+    .sort((a, b) => minutesOf(a.start) - minutesOf(b.start))
+
+  const goal = goalBlock(blocks, goals)
+
+  if (classes.length === 0) {
+    return goal
+      ? `No classes today. Keep your ${goal.goal.toLowerCase()} block at ${fmt(goal.block.start)}.`
+      : 'No classes today. A clear day — spend it on purpose.'
+  }
+
+  const classMinutes = classes.reduce(
+    (total, block) => total + durationMinutes(block.start, block.end),
+    0
+  )
+
+  if (classes.length >= 3 || classMinutes >= 180) {
+    const gap = largestGap(classes)
+    if (gap && gap.minutes >= 45) {
+      return `Long class day. Protect the ${fmt(gap.from)} to ${fmt(gap.to)} gap.`
+    }
+    return 'Long class day. Eat well, and keep the evening light.'
+  }
+
+  const tail = goal ? ` Keep your ${goal.goal.toLowerCase()} block at ${fmt(goal.block.start)}.` : ''
+  return classes.length === 1
+    ? `One class at ${fmt(classes[0].start)}.${tail || ' The rest of the day is yours.'}`
+    : `Two classes today.${tail || ' Use the space between them well.'}`
 }

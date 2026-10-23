@@ -1,6 +1,6 @@
 'use client'
 
-import { Day, days, focus } from '@/lib/schedule'
+import { Day, days } from '@/lib/schedule'
 import type { BlockView } from '@/lib/resolver'
 import { BlockRow } from './BlockRow'
 
@@ -9,6 +9,7 @@ type Props = {
     shown: BlockView[]
     selectedDay: Day
     setSelectedDay: (d: Day) => void
+    headline: string
     classHours: number
     studyHours: number
     essentialDone: boolean
@@ -20,7 +21,7 @@ type Props = {
 
 export function WeekView({
     blocks, shown,
-    selectedDay, setSelectedDay, classHours, studyHours, essentialDone,
+    selectedDay, setSelectedDay, headline, classHours, studyHours, essentialDone,
     minimum, setMinimum, onToggle, onEdit,
 }: Props) {
     return (
@@ -60,7 +61,7 @@ export function WeekView({
             <section className="week-heading">
                 <div>
                     <p className="section-kicker">{selectedDay}</p>
-                    <h2 key={selectedDay} className="title-anim">{focus[selectedDay]}</h2>
+                    <h2 key={selectedDay} className="title-anim">{headline}</h2>
                 </div>
                 <button
                     className={`switch ${minimum ? 'on' : ''}`}
