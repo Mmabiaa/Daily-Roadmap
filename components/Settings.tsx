@@ -324,7 +324,7 @@ export function Settings({ profile, onProfile, onToast, onSignOut }: Props) {
     const initial = (draft.name.trim() || account?.username || '').charAt(0).toUpperCase()
 
     return (
-        <main className="content settings-page st-page">
+        <main className="content st-page">
             {/* Identity header */}
             <header className="st-hero">
                 <div className="st-avatar" aria-hidden="true">

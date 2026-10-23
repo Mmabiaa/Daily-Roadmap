@@ -81,7 +81,10 @@ what is new. Kept deliberately short: one line per item, plain words.
 - [x] `components/Guide.tsx` — per-account rules instead of the admin-only bundle,
       plus a "What this is" card and a line from the account's own goals
 - [x] `components/Settings.tsx` — an account card (name, username, email, time zone)
-      above the focus settings
+      above the focus settings, styled by `app/styles/settings.css` (`st-` classes)
+- [x] `app/styles/settings.css` — the Settings screen's own stylesheet, imported from
+      `globals.css`; the `.settings-*`, `.segmented`, `.share-code`, `.code-input`
+      and `.import-row` rules it replaces are gone from `09-screens.css`
 - [x] `components/WeekView.tsx` — the day's headline is passed in, not read from a template
 - [x] `components/Review.tsx` — insights above the weekly prompts
 - [x] `components/TodayView.tsx` — energy check-in and wellbeing notes
