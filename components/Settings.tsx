@@ -26,6 +26,8 @@ type Props = {
     onProfile: (profile: Profile) => void
     onToast: (message: string, tone?: 'success' | 'info') => void
     onSignOut: () => void
+    /** Called after an import replaces this account's classes, so the week reloads. */
+    onImported: () => void
 }
 
 /** The account's identity — the fields that live on the `users` document. */
@@ -126,7 +128,7 @@ function Switch({
  * there is no save button to forget. Only the fields that actually differ from
  * what the server last confirmed are sent.
  */
-export function Settings({ profile, onProfile, onToast, onSignOut }: Props) {
+export function Settings({ profile, onProfile, onToast, onSignOut, onImported }: Props) {
     const [draft, setDraft] = useState<Profile>(profile)
     const [saved, setSaved] = useState(false)
 
@@ -313,6 +315,7 @@ export function Settings({ profile, onProfile, onToast, onSignOut }: Props) {
             haptic(8)
             setEnterCode('')
             onToast(`Added ${data.created} classes`, 'success')
+            onImported()
         } catch {
             onToast('That code did not work')
         } finally {
