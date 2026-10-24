@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { seedDatabase } from '@/lib/seed'
-import { checkSeedAccess } from '@/lib/seed-access'
+import { checkSeedAccess, providedSeedKey } from '@/lib/seed-access'
 
 /**
  * Seeding creates the first account, so the endpoint is not public: the caller
@@ -10,20 +10,9 @@ import { checkSeedAccess } from '@/lib/seed-access'
  * A wrong or missing key answers 404, the same as a route that does not exist,
  * so the endpoint does not advertise itself.
  */
-function providedSeedKey(request: Request, url: URL): string | null {
-  const header = request.headers.get('x-seed-key')
-  if (header) return header
-
-  // Query strings are written to access logs, proxies and browser history, so
-  // `?key=` is only honoured outside production (handy with `npm run dev`).
-  if (process.env.NODE_ENV !== 'production') return url.searchParams.get('key')
-
-  return null
-}
-
 async function handleSeed(request: Request) {
   const access = checkSeedAccess({
-    providedKey: providedSeedKey(request, new URL(request.url)),
+    providedKey: providedSeedKey(request),
     configuredSecret: process.env.SEED_SECRET,
     isProduction: process.env.NODE_ENV === 'production',
   })
