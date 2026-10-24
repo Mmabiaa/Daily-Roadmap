@@ -85,6 +85,37 @@ const seedKeyHeader = {
   schema: { type: 'string' },
 }
 
+const seedKeyNotice =
+  'Requires the `SEED_SECRET` value in the `x-seed-key` header, like seeding. A wrong or ' +
+  'missing key returns 404.'
+
+const dryRunQuery = {
+  name: 'dryRun',
+  in: 'query',
+  required: false,
+  description: 'Report what would change and write nothing.',
+  schema: { type: 'boolean', default: false },
+}
+
+const ownerQuery = {
+  name: 'owner',
+  in: 'query',
+  required: false,
+  description:
+    'The account the ownerless rows are claimed for. Defaults to `ADMIN_USERNAME`, then `admin`.',
+  schema: { type: 'string' },
+}
+
+const handoverDescription =
+  'The production handover: gives the rows from before accounts existed an owner, and puts every ' +
+  'other account through the new setup. A row that already names a `userId` is returned to its own ' +
+  'account; a row that names nobody is claimed for the owner. The owner is marked onboarded and ' +
+  'goes straight to the app, every other account is marked not onboarded and meets the one-minute ' +
+  'setup. Nothing is deleted and no row is rewritten — an owner is only added — so no run of this ' +
+  'can lose an event, and an account that already keeps events is not given a fresh plan. Safe to ' +
+  'run twice: a second run finds nothing to do. Call it with `?dryRun=true` first to see what it ' +
+  `would change. ${seedKeyNotice}`
+
 export const openApiDocument = {
   openapi: '3.0.3',
   info: {
@@ -107,7 +138,7 @@ export const openApiDocument = {
     { name: 'Insights', description: 'What the account keeps and what slips, read from its own history' },
     { name: 'Onboarding', description: 'Finishing the one-minute setup' },
     { name: 'Timetable', description: 'Importing a class timetable, and sharing it by code' },
-    { name: 'Admin', description: 'Seeding (guarded by a server secret)' },
+    { name: 'Admin', description: 'Seeding and the production handover (guarded by a server secret)' },
     { name: 'Docs', description: 'This specification' },
   ],
   security: [{ cookieAuth: [] }],
@@ -637,6 +668,40 @@ export const openApiDocument = {
         },
       },
     },
+    '/api/handover': {
+      get: {
+        tags: ['Admin'],
+        summary: 'Hand the existing data over to the new model',
+        description: handoverDescription,
+        security: [],
+        parameters: [seedKeyHeader, ownerQuery, dryRunQuery],
+        responses: {
+          200: {
+            description: 'What the run changed, or would change',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/HandoverResponse' } } },
+          },
+          400: { description: 'No such account to hand the rows to', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'The handover is disabled or the key is wrong', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+      post: {
+        tags: ['Admin'],
+        summary: 'Hand the existing data over to the new model',
+        description: handoverDescription,
+        security: [],
+        parameters: [seedKeyHeader, ownerQuery, dryRunQuery],
+        responses: {
+          200: {
+            description: 'What the run changed, or would change',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/HandoverResponse' } } },
+          },
+          400: { description: 'No such account to hand the rows to', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          404: { description: 'The handover is disabled or the key is wrong', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+          500: errorResponse,
+        },
+      },
+    },
     '/api/openapi': {
       get: {
         tags: ['Docs'],
@@ -1124,6 +1189,25 @@ export const openApiDocument = {
           success: { type: 'boolean' },
           message: { type: 'string' },
           error: { type: 'string' },
+        },
+      },
+      HandoverResponse: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          message: { type: 'string' },
+          error: { type: 'string' },
+          owner: { type: 'string', description: 'The account the ownerless rows are claimed for.' },
+          database: { type: 'string', description: 'The database the run touched.' },
+          dryRun: { type: 'boolean', description: 'True when nothing was written.' },
+          returned: {
+            type: 'integer',
+            description: 'Unowned rows given back to the account their own `userId` names.',
+          },
+          claimed: { type: 'integer', description: 'Unowned rows that named nobody, claimed for `owner`.' },
+          accounts: { type: 'integer', description: 'The other accounts on this deployment.' },
+          enrolled: { type: 'integer', description: 'Accounts put through the new setup.' },
+          done: { type: 'boolean', description: 'True when the run found nothing left to do.' },
         },
       },
     },

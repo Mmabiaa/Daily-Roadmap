@@ -25,8 +25,9 @@ what is new. Kept deliberately short: one line per item, plain words.
 - [x] Atomic multi-document writes via transactions
 - [x] Server-computed streak (forgiving: neutral days skipped, unfinished today not held against you)
 - [x] Migration script `scripts/migrate-events-to-v2.ts` (dry-run by default)
-- [x] Production handover `scripts/seed-production.ts` — claims the pre-account rows for
-      one account and puts every other account through the new setup (dry-run by default)
+- [x] Production handover `POST /api/handover` — claims the pre-account rows for one account and
+      puts every other account through the new setup, run from the docs with `SEED_SECRET`
+      (`?dryRun=true` to see what it would change without writing)
 
 ## Screens already wired
 

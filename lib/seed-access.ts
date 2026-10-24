@@ -26,6 +26,23 @@ export function checkSeedAccess(input: {
   return timingSafeEqualString(providedKey, configuredSecret) ? 'ok' : 'forbidden'
 }
 
+/**
+ * Reads the key a request presents.
+ *
+ * Query strings are written to access logs, proxies and browser history, so
+ * `?key=` is only honoured outside production (handy with `npm run dev`).
+ */
+export function providedSeedKey(request: Request): string | null {
+  const header = request.headers.get('x-seed-key')
+  if (header) return header
+
+  if (process.env.NODE_ENV !== 'production') {
+    return new URL(request.url).searchParams.get('key')
+  }
+
+  return null
+}
+
 /** Constant-time comparison, so a wrong key cannot be guessed byte by byte. */
 function timingSafeEqualString(a: string, b: string): boolean {
   const left = Buffer.from(a)
