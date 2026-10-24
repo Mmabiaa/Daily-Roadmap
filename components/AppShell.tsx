@@ -596,6 +596,7 @@ export function AppShell() {
                         onProfile={handleProfile}
                         onToast={(message, tone) => setToast({ message, tone })}
                         onSignOut={handleSignOut}
+                        onImported={loadSchedule}
                     />
                 )}
             </div>
